@@ -1770,6 +1770,7 @@ async function handleLogin() {
   state.loading = false;
   render();
   setTimeout(requestNotificationPermission, 2000);
+  startPolling();
 }
 
 // ── AUTH: Sign up ─────────────────────────────────────────────────────────
@@ -1841,23 +1842,29 @@ async function handleJoin() {
   if (avatarPreview) state.user.avatar = avatarPreview;
   state.joinForm.avatarPreview = null;
 
-  // Persist to Supabase
-  await sb.update('profiles', {
-    nickname: state.user.nickname,
-    role: state.user.role,
-    avatar_url: state.user.avatar || null,
-  }, { id: state.user.id });
+  // Persist to Supabase — use service-key-free approach via anon update
+  // This works because the profile row was already inserted during signup
+  try {
+    await sb.update('profiles', {
+      nickname: state.user.nickname,
+      role: state.user.role,
+      avatar_url: state.user.avatar || null,
+    }, { id: state.user.id });
+  } catch(e) {
+    console.log('Profile update error (non-fatal):', e);
+  }
 
   const u = state.users.find(u => u.id === state.user.id);
   if (u) Object.assign(u, state.user);
 
+  await loadAppData();
   navigate('home');
   state.activeTab = 'home';
+  startPolling();
   render();
 }
-
-// ── AUTH: Logout ──────────────────────────────────────────────────────────
 async function confirmLogout() {
+  stopPolling();
   await sb.auth_signOut();
   state.user = null;
   state.users = [];
@@ -2295,10 +2302,14 @@ function buildTopBanner({ title = '', showBack = false } = {}) {
 
 function buildBottomNav() {
   const t = state.activeTab;
+  const totalUnread = state.messages.reduce((sum, thread) => sum + (getUnreadCount(thread) || 0), 0);
+  const msgBadge = totalUnread > 0
+    ? `<span style="position:absolute;top:2px;right:18px;background:var(--accent);color:#000;font-size:10px;font-weight:700;min-width:16px;height:16px;border-radius:8px;display:flex;align-items:center;justify-content:center;padding:0 3px;">${totalUnread > 99 ? '99+' : totalUnread}</span>`
+    : '';
   return `<div class="bottom-nav">
     <button class="nav-tab ${t==='home'?'active':''}" onclick="setTab('home')">${icons.home}<span>Home</span></button>
     <button class="nav-tab ${t==='events'?'active':''}" onclick="setTab('events')">${icons.events}<span>Events</span></button>
-    <button class="nav-tab ${t==='messages'?'active':''}" onclick="setTab('messages')">${icons.messages}<span>Messages</span></button>
+    <button class="nav-tab ${t==='messages'?'active':''}" onclick="setTab('messages')" style="position:relative;">${icons.messages}${msgBadge}<span>Messages</span></button>
     <button class="nav-tab ${t==='menu'?'active':''}" onclick="setTab('menu')">${icons.menu}<span>Menu</span></button>
   </div>`;
 }
@@ -4483,6 +4494,9 @@ window.openChat = (id) => {
   state.prevScreen = 'messages';
   state.screen = 'chat';
   state.activeTab = 'messages';
+  // Mark as read
+  const thread = state.messages.find(m => m.id === id);
+  if (thread && state.user) thread.unread[state.user.id] = 0;
   render();
   setTimeout(() => {
     const el = document.getElementById('chat-messages-container');
@@ -4569,7 +4583,8 @@ window.handleAvatarUpload = (event) => {
       state.user.avatar = e.target.result;
       const u = state.users.find(u => u.id === state.user.id);
       if (u) u.avatar = e.target.result;
-      persistProfiles();
+      // Persist avatar to Supabase immediately
+      sb.update('profiles', { avatar_url: e.target.result }, { id: state.user.id });
       render();
     }
   };
@@ -5321,6 +5336,108 @@ async function sendPushNotification(title, message, url = '/') {
   }
 }
 
+// ── REAL-TIME MESSAGE POLLING ─────────────────────────────────────────────
+// Poll Supabase every 5 seconds for new messages while logged in
+let _pollInterval = null;
+
+async function pollMessages() {
+  if (!state.user || !sb._token) return;
+  try {
+    // Fetch all threads the current user is in
+    const threads = await sb.select('threads', 'order=created_at.asc');
+    if (!Array.isArray(threads)) return;
+
+    const myThreads = threads.filter(t =>
+      Array.isArray(t.participants) && t.participants.includes(state.user.id)
+    );
+    if (myThreads.length === 0) return;
+
+    const threadIds = myThreads.map(t => `"${t.id}"`).join(',');
+    const msgs = await sb.select('messages', `thread_id=in.(${threadIds})&order=created_at.asc`);
+    if (!Array.isArray(msgs)) return;
+
+    let gotNew = false;
+    let newMsgFrom = null;
+    let newMsgText = '';
+    let newMsgThread = null;
+
+    myThreads.forEach(t => {
+      const threadMsgs = msgs.filter(m => m.thread_id === t.id);
+      let existing = state.messages.find(m => m.id === t.id);
+
+      if (!existing) {
+        // Brand new thread — add it
+        existing = {
+          id: t.id,
+          isGroup: t.is_group,
+          name: t.name || null,
+          participants: t.participants || [],
+          messages: [],
+          unread: Object.fromEntries((t.participants || []).map(p => [p, 0])),
+        };
+        state.messages.unshift(existing);
+      }
+
+      const existingIds = new Set(existing.messages.map(m => m.id));
+      threadMsgs.forEach(m => {
+        if (!existingIds.has(m.id)) {
+          // New message found
+          const newMsg = {
+            id: m.id,
+            from: m.is_system ? 'system' : m.from_id,
+            text: m.text || '',
+            image: m.image_url || null,
+            system: m.is_system || false,
+            reactions: m.reactions || {},
+            ts: new Date(m.created_at).getTime(),
+          };
+          existing.messages.push(newMsg);
+
+          // Only count as unread if sent by someone else
+          if (m.from_id !== state.user.id) {
+            existing.unread[state.user.id] = (existing.unread[state.user.id] || 0) + 1;
+            gotNew = true;
+
+            // For push notification — capture the sender and message
+            if (!newMsgFrom) {
+              newMsgFrom = m.from_id;
+              newMsgText = m.text || '';
+              newMsgThread = existing;
+            }
+          }
+        }
+      });
+    });
+
+    if (gotNew) {
+      // Send push notification for new messages (1:1 and group)
+      if (newMsgFrom && newMsgThread) {
+        const sender = state.users.find(u => u.id === newMsgFrom);
+        const senderName = sender ? (sender.nickname || sender.firstName) : 'Someone';
+        const threadName = newMsgThread.isGroup
+          ? (newMsgThread.name || 'Group Chat')
+          : senderName;
+        sendPushNotification(
+          `💬 ${threadName}`,
+          `${newMsgThread.isGroup ? senderName + ': ' : ''}${newMsgText.substring(0, 80)}`,
+        );
+      }
+      render();
+    }
+  } catch(e) {
+    console.log('Poll error:', e);
+  }
+}
+
+function startPolling() {
+  if (_pollInterval) clearInterval(_pollInterval);
+  _pollInterval = setInterval(pollMessages, 5000);
+}
+
+function stopPolling() {
+  if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
+}
+
 // ── BOOT ──────────────────────────────────────────────────────────────────
 // Try to restore an existing session, otherwise show splash screen
 (async () => {
@@ -5329,6 +5446,7 @@ async function sendPushNotification(title, message, url = '/') {
   if (restored) {
     navigate('home');
     state.activeTab = 'home';
+    startPolling();
   }
   render();
 })();
