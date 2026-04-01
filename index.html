@@ -1303,6 +1303,19 @@
   /* ── ERROR STATE ── */
   .error-msg { color: var(--red); font-size: 13px; }
 </style>
+  <!-- OneSignal Push Notifications -->
+  <!-- Replace YOUR_ONESIGNAL_APP_ID below with your App ID from onesignal.com -->
+  <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+  <script>
+    window.OneSignalDeferred = window.OneSignalDeferred || [];
+    OneSignalDeferred.push(async function(OneSignal) {
+      await OneSignal.init({
+        appId: "0a0d5972-3d46-4a19-a343-e0ae3222aa9b",
+        notifyButton: { enable: false },   // we handle permission ourselves
+        allowLocalhostAsSecureOrigin: true,
+      });
+    });
+  </script>
 </head>
 <body>
 <div id="phone-frame">
@@ -1668,6 +1681,7 @@ function handleLogin() {
   navigate('home');
   state.activeTab = 'home';
   render();
+  setTimeout(requestNotificationPermission, 2000);
 }
 
 function handleSignup() {
@@ -1806,6 +1820,15 @@ function handleCreateEvent() {
       team: [],
     };
     state.events.unshift(newEv);
+
+    // Notify members of new social event if immediate notification ticked
+    if (newEv.type === 'social' && f.notifications?.immediate) {
+      sendPushNotification(
+        `🎉 New Event: ${newEv.title}`,
+        `${formatDate(newEv.date)} at ${newEv.location}`,
+      );
+    }
+
     // Reset form
     state.createEventForm = {
       category: 'social', title: '', date: '', time: '', finishTime: '', location: '',
@@ -1831,12 +1854,20 @@ function sendChatMessage() {
       ts: Date.now(),
     };
     thread.messages.push(newMsg);
-    // Mark unread for all other participants
     thread.participants.forEach(pid => {
       if (pid !== state.user.id) {
         thread.unread[pid] = (thread.unread[pid] || 0) + 1;
       }
     });
+    // Notify group chats only (1:1 chats notify naturally via unread badge)
+    if (thread.isGroup) {
+      const senderName = state.user.nickname || state.user.firstName;
+      const groupName  = thread.name || 'Group Chat';
+      sendPushNotification(
+        `💬 ${groupName}`,
+        `${senderName}: ${state.chatInput.trim().substring(0, 80)}`,
+      );
+    }
     state.chatInput = '';
     render();
     setTimeout(() => {
@@ -1875,6 +1906,10 @@ function publishTeamSelection() {
   const ev = state.events.find(e => e.id === state.activeEventId);
   if (ev) {
     ev.team = state.selectedPlayers.map(p => ({ ...p }));
+    sendPushNotification(
+      `🏏 Team Selected: ${ev.title}`,
+      `The team for ${formatDate(ev.date)} has been announced. Check the app to see if you're playing.`,
+    );
   }
   state.selectedPlayers = [];
   navigate('eventdetail', { activeEventId: state.activeEventId });
@@ -4341,6 +4376,14 @@ window.publishAnnouncement = () => {
 
   state.announcements.unshift(newAnn);
 
+  // Send push notification if admin ticked the box
+  if (f.sendNotification) {
+    sendPushNotification(
+      `📢 ${title}`,
+      body.substring(0, 100),
+    );
+  }
+
   // Reset form
   state.createAnnouncementForm = {
     title: '', body: '', image: null, recipients: 'all', sendNotification: true,
@@ -4369,7 +4412,7 @@ window.submitFeedback = async () => {
 
   // ── FORMSPREE ENDPOINT ──────────────────────────────────────────────────
   // Replace the URL below with your Formspree endpoint after signing up at formspree.io
-  const FORMSPREE_ENDPOINT = 'https://formspree.io/f/mlgoldro';
+  const FORMSPREE_ENDPOINT = 'https://formspree.io/f/YOUR_FORM_ID';
   // ────────────────────────────────────────────────────────────────────────
 
   try {
@@ -4590,6 +4633,12 @@ window.amendSession = (id) => {
   ev.location   = document.getElementById('ts-modal-location')?.value || ev.location;
   const notify  = state.modal?.notifyCancel !== false;
   state.modal = null;
+  if (notify) {
+    sendPushNotification(
+      `📅 Training Updated: ${formatDate(ev.date)}`,
+      `${ev.time}–${ev.finishTime} at ${ev.location}`,
+    );
+  }
   showToast(notify ? 'Session updated — members notified!' : 'Session updated!');
   render();
 };
@@ -4602,6 +4651,12 @@ window.cancelSession = (id) => {
   ev.cancelled  = true;
   ev.cancelNote = note;
   state.modal = null;
+  if (notify) {
+    sendPushNotification(
+      `❌ Training Cancelled: ${formatDate(ev.date)}`,
+      note || 'This training session has been cancelled.',
+    );
+  }
   showToast(notify ? 'Session cancelled — members notified!' : 'Session cancelled.');
   render();
 };
@@ -4927,6 +4982,46 @@ window.importConfirm = () => {
   showToast(`${importCount} fixture${importCount !== 1 ? 's' : ''} imported!`);
   render();
 };
+
+// ── PUSH NOTIFICATIONS (OneSignal) ───────────────────────────────────────
+
+// Request permission from the user after they log in
+async function requestNotificationPermission() {
+  try {
+    if (window.OneSignal) {
+      await window.OneSignal.Notifications.requestPermission();
+    }
+  } catch(e) {
+    console.log('Notification permission request failed:', e);
+  }
+}
+
+// Send a push notification via OneSignal REST API
+// Replace YOUR_ONESIGNAL_APP_ID and os_v2_app_bigvs4r5izfbti2d4cxdeivkto4oh2gi7qkufl4kwourkzstjygyxpllctkwxijfu6jpkvoe43qelbj334ymjilqvuddxghxzmxxnzy with your real values
+const ONESIGNAL_APP_ID      = 'YOUR_ONESIGNAL_APP_ID';
+const ONESIGNAL_REST_API_KEY = 'os_v2_app_bigvs4r5izfbti2d4cxdeivkto4oh2gi7qkufl4kwourkzstjygyxpllctkwxijfu6jpkvoe43qelbj334ymjilqvuddxghxzmxxnzy';
+
+async function sendPushNotification(title, message, url = '/') {
+  if (!ONESIGNAL_APP_ID || ONESIGNAL_APP_ID === 'YOUR_ONESIGNAL_APP_ID') return;
+  try {
+    await fetch('https://onesignal.com/api/v1/notifications', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${ONESIGNAL_REST_API_KEY}`,
+      },
+      body: JSON.stringify({
+        app_id: ONESIGNAL_APP_ID,
+        included_segments: ['All'],
+        headings:  { en: title },
+        contents:  { en: message },
+        url,
+      }),
+    });
+  } catch(e) {
+    console.log('Push notification failed:', e);
+  }
+}
 
 // ── BOOT ──────────────────────────────────────────────────────────────────
 render();
