@@ -1304,14 +1304,14 @@
   .error-msg { color: var(--red); font-size: 13px; }
 </style>
   <!-- OneSignal Push Notifications -->
-  <!-- Replace 0a0d5972-3d46-4a19-a343-e0ae3222aa9b_ID below with your App ID from onesignal.com -->
+  <!-- OneSignal App ID configured -->
   <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
   <script>
     window.OneSignalDeferred = window.OneSignalDeferred || [];
     OneSignalDeferred.push(async function(OneSignal) {
       await OneSignal.init({
-        appId: "0a0d5972-3d46-4a19-a343-e0ae3222aa9b_ID",
-        notifyButton: { enable: false },   // we handle permission ourselves
+        appId: "0a0d5972-3d46-4a19-a343-e0ae3222aa9b",
+        notifyButton: { enable: false },
         allowLocalhostAsSecureOrigin: true,
       });
     });
