@@ -1304,7 +1304,18 @@
   .error-msg { color: var(--red); font-size: 13px; }
 </style>
   <!-- OneSignal Push Notifications -->
-  <!-- OneSignal App ID configured -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Generals CC">
+  <meta name="theme-color" content="#1a3a8f">
+  <link rel="apple-touch-icon" href="logo.png">
+  <script>
+    // Set apple touch icon from embedded logo after page loads
+    document.addEventListener('DOMContentLoaded', function() {
+      const ICON_B64 = document.querySelector('script[type="module"]')
+        ? null : null; // resolved below via inline approach
+    });
+  </script>
   <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
   <script>
     window.OneSignalDeferred = window.OneSignalDeferred || [];
@@ -4745,7 +4756,7 @@ const MOCK_PHQ_FIXTURES = {
 // ── PLAYHQ API PROXY ─────────────────────────────────────────────────────
 // In Live mode, requests go through your Cloudflare Worker (avoids CORS).
 // Replace the URL below with your deployed Worker URL after setup.
-const PLAYHQ_PROXY = 'https://playhq-proxy.thomsonseth.workers.dev';
+const PLAYHQ_PROXY = 'https://playhq-proxy.YOUR_SUBDOMAIN.workers.dev';
 
 async function playHQGet(path) {
   const res = await fetch(`${PLAYHQ_PROXY}${path}`);
@@ -4986,7 +4997,7 @@ window.importConfirm = () => {
 // ── PUSH NOTIFICATIONS (OneSignal via Cloudflare Worker) ─────────────────
 // Replace the URL below with your deployed onesignal-worker URL after setup.
 // The Worker holds your API keys securely and avoids CORS issues.
-const ONESIGNAL_WORKER_URL = 'https://onesignal-proxy.thomsonseth.workers.dev';
+const ONESIGNAL_WORKER_URL = 'https://onesignal-proxy.YOUR_SUBDOMAIN.workers.dev';
 
 // Request permission from the user after they log in
 async function requestNotificationPermission() {
