@@ -1467,107 +1467,436 @@ const state = {
 // ║  Profile picture (avatar) is set at runtime by the user and is       ║
 // ║  persisted in localStorage — do not set avatar: here.                ║
 // ╚══════════════════════════════════════════════════════════════════════╝
-const MOCK_USERS = [
-  { id: '1', email: 'admin@genericcc.com',   password: 'admin123', firstName: 'Alex',   lastName: 'Smith',    nickname: 'Smitty', mobile: '0400 111 222', role: 'Administrator', avatar: null },
-  { id: '2', email: 'captain@genericcc.com', password: 'cap123',   firstName: 'Marcus', lastName: 'Williams', nickname: 'Willo',  mobile: '0412 345 678', role: 'Captain',       avatar: null },
-  { id: '3', email: 'player@genericcc.com',  password: 'play123',  firstName: 'James',  lastName: 'Anderson', nickname: 'Jimmy',  mobile: '0498 765 432', role: 'Player',        avatar: null },
-  { id: '4', email: 'fan@genericcc.com',     password: 'fan123',   firstName: 'Sarah',  lastName: 'Connor',   nickname: 'Saz',    mobile: '0477 111 222', role: 'Supporter',     avatar: null },
-];
+// ══════════════════════════════════════════════════════════════════════════
+// ── SUPABASE CONFIGURATION ────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════
+const SUPABASE_URL  = 'https://jevhcjfeybzkltqnbloa.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpldmhjamZleWJ6a2x0cW5ibG9hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwMzMxMzYsImV4cCI6MjA5MDYwOTEzNn0.65EYjQ96Uae8tZvAecR3cTFj45Uy408kwlHRZIenqU4';
 
-// ── Restore any profile edits the user has saved in this browser session ──
-// This ensures that profile changes (name, nickname, mobile, email, avatar)
-// made during testing survive re-renders and page refreshes.
-(function restoreProfiles() {
-  try {
-    const saved = localStorage.getItem('clubapp_profiles');
-    if (saved) {
-      const profiles = JSON.parse(saved);
-      MOCK_USERS.forEach(u => {
-        if (profiles[u.id]) Object.assign(u, profiles[u.id]);
-      });
-    }
-  } catch(e) {}
-})();
+// Lightweight Supabase REST helper — no npm needed
+const sb = {
+  _h() {
+    return {
+      'apikey': SUPABASE_ANON,
+      'Authorization': `Bearer ${sb._token || SUPABASE_ANON}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=representation',
+    };
+  },
+  _token: null,
 
-function persistProfiles() {
-  try {
-    const profiles = {};
-    MOCK_USERS.forEach(u => {
-      profiles[u.id] = {
-        firstName: u.firstName, lastName: u.lastName,
-        nickname: u.nickname,   mobile: u.mobile,
-        email: u.email,         avatar: u.avatar,
-      };
+  async from(table) {
+    return new SBQuery(table);
+  },
+
+  async auth_signUp(email, password) {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_ANON, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
     });
-    localStorage.setItem('clubapp_profiles', JSON.stringify(profiles));
-  } catch(e) {}
+    return r.json();
+  },
+
+  async auth_signIn(email, password) {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_ANON, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    return r.json();
+  },
+
+  async auth_signOut() {
+    await fetch(`${SUPABASE_URL}/auth/v1/logout`, {
+      method: 'POST',
+      headers: sb._h(),
+    });
+    sb._token = null;
+    localStorage.removeItem('clubapp_session');
+  },
+
+  async select(table, query = '') {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {
+      headers: sb._h(),
+    });
+    return r.json();
+  },
+
+  async insert(table, data) {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+      method: 'POST',
+      headers: sb._h(),
+      body: JSON.stringify(data),
+    });
+    return r.json();
+  },
+
+  async update(table, data, match) {
+    const q = Object.entries(match).map(([k,v]) => `${k}=eq.${v}`).join('&');
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${q}`, {
+      method: 'PATCH',
+      headers: sb._h(),
+      body: JSON.stringify(data),
+    });
+    return r.json();
+  },
+
+  async upsert(table, data) {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+      method: 'POST',
+      headers: { ...sb._h(), 'Prefer': 'resolution=merge-duplicates,return=representation' },
+      body: JSON.stringify(data),
+    });
+    return r.json();
+  },
+
+  async delete(table, match) {
+    const q = Object.entries(match).map(([k,v]) => `${k}=eq.${v}`).join('&');
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${q}`, {
+      method: 'DELETE',
+      headers: sb._h(),
+    });
+    return r.ok;
+  },
+};
+
+// ── Session persistence ───────────────────────────────────────────────────
+function saveSession(session) {
+  try { localStorage.setItem('clubapp_session', JSON.stringify(session)); } catch(e) {}
 }
 
-const MOCK_EVENTS = [
-  { id: 'e1', type: 'social', title: 'Season Launch BBQ', date: '2026-04-18', time: '14:00', location: 'Club Oval — Pavilion', description: 'Join us for the season kick-off! Food, drinks and fun for the whole family.', cost: 15, stripeLink: 'https://buy.stripe.com/mock_season-launch-bbq', rsvp: {} },
-  { id: 'e2', type: 'social', title: 'Club Trivia Night', date: '2026-04-26', time: '19:00', location: 'Club Rooms', description: 'Test your knowledge at our annual trivia night. Teams of 4–6.', cost: 0, rsvp: {} },
-  { id: 'e3', type: 'match', title: 'Generic CC vs Riverside CC', date: '2025-04-19', time: '10:00', location: 'Club Oval', description: 'Home match — Grade 1.', cost: 0, rsvp: {}, team: [] },
-  { id: 'e4', type: 'match', title: 'Generic CC vs Northside CC', date: '2025-05-03', time: '10:00', location: 'Northside Reserve', description: 'Away match — Grade 1.', cost: 0, rsvp: {}, team: [] },
-  { id: 'e5', type: 'training', title: 'Tuesday Training', date: '2025-04-15', time: '18:30', location: 'Club Oval — Nets', description: 'Batting and bowling nets. Mandatory for all registered players.', cost: 0, rsvp: {} },
-  { id: 'e6', type: 'training', title: 'Saturday Warm-up', date: '2025-04-19', time: '09:00', location: 'Club Oval', description: 'Pre-match warm-up session.', cost: 0, rsvp: {} },
-  { id: 'e7', type: 'social', title: 'End of Season Dinner', date: '2024-11-30', time: '18:30', location: 'Club Rooms', description: 'Celebrating a great season!', cost: 50, rsvp: { '1': 'going', '2': 'going', '3': 'maybe' } },
-];
+function loadSession() {
+  try { return JSON.parse(localStorage.getItem('clubapp_session') || 'null'); } catch(e) { return null; }
+}
 
-const MOCK_ANNOUNCEMENTS = [
-  { id: 'a1', title: 'Registrations Now Open!', body: 'Cricket Australia registrations for the 2025/26 season are now open. Head to the Registration section to sign up via PlayHQ.', date: '2025-03-28', author: 'Smitty' },
-  { id: 'a2', title: 'Training Schedule Updated', body: 'Please note training has moved to Tuesday and Thursday evenings from 6:30pm. Juniors train on Saturday mornings at 9am.', date: '2025-03-20', author: 'Willo' },
-  { id: 'a3', title: 'New Kits Available in Shop', body: 'Our new season playing kits are now available in the shop. Order early to guarantee your size!', date: '2025-03-15', author: 'Smitty' },
-];
+// ── Map Supabase profile row → app user object ────────────────────────────
+function profileToUser(p) {
+  return {
+    id: p.id,
+    email: p.email,
+    firstName: p.first_name,
+    lastName: p.last_name,
+    nickname: p.nickname || '',
+    mobile: p.mobile || '',
+    role: p.role || 'Player',
+    avatar: p.avatar_url || null,
+  };
+}
 
-const MOCK_MESSAGES = [
-  {
-    id: 'm1',
-    isGroup: false,
-    participants: ['1', '2'],
-    name: null, // derived from participants for 1:1
-    messages: [
-      { id: 'msg1', from: '2', text: 'Hey Smitty, confirmed for Saturday?', ts: Date.now() - 7200000 },
-      { id: 'msg2', from: '1', text: 'Yep, all good mate! Should be a great game.', ts: Date.now() - 7100000 },
-      { id: 'msg3', from: '2', text: 'Awesome. I\'ll bring the extra gear.', ts: Date.now() - 3600000 },
-    ],
-    unread: { '1': 0, '2': 0, '3': 1, '4': 1 },
-  },
-  {
-    id: 'm2',
-    isGroup: false,
-    participants: ['1', '3'],
-    name: null,
-    messages: [
-      { id: 'msg4', from: '3', text: 'What time does training start this week?', ts: Date.now() - 86400000 },
-      { id: 'msg5', from: '1', text: '6:30pm at the oval. See you there!', ts: Date.now() - 82800000 },
-    ],
-    unread: { '1': 0, '2': 0, '3': 0, '4': 0 },
-  },
-  {
-    id: 'm3',
-    isGroup: true,
-    participants: ['1', '2', '3', '4'],
-    name: 'Grade 1 Team Chat',
-    messages: [
-      { id: 'msg6', from: '2', text: 'Great win lads! 🏏', ts: Date.now() - 172800000 },
-      { id: 'msg7', from: '3', text: 'What a game! Jimmy was on fire 🔥', ts: Date.now() - 171000000 },
-      { id: 'msg8', from: '1', text: 'Massive effort from everyone. Finals here we come!', ts: Date.now() - 170000000 },
-      { id: 'msg9', from: '4', text: 'So proud of you all! 👏', ts: Date.now() - 168000000 },
-    ],
-    unread: { '1': 0, '2': 0, '3': 2, '4': 1 },
-  },
-  {
-    id: 'm4',
-    isGroup: false,
-    participants: ['2', '3'],
-    name: null,
-    messages: [
-      { id: 'msg10', from: '2', text: 'Jimmy can you open up the nets on Tuesday?', ts: Date.now() - 259200000 },
-      { id: 'msg11', from: '3', text: 'Sure thing Cap, no worries', ts: Date.now() - 255600000 },
-    ],
-    unread: { '1': 0, '2': 0, '3': 0, '4': 0 },
-  },
-];
+// ── Map Supabase event row → app event object ─────────────────────────────
+function rowToEvent(r) {
+  return {
+    id: r.id,
+    type: r.type,
+    title: r.title,
+    date: r.date,
+    time: r.time,
+    finishTime: r.finish_time || '',
+    location: r.location || '',
+    description: r.description || '',
+    cost: parseFloat(r.cost) || 0,
+    stripeLink: r.stripe_link || null,
+    image: r.image_url || null,
+    grade: r.grade || null,
+    gradeId: r.grade_id || null,
+    round: r.round || null,
+    homeTeam: r.home_team || null,
+    awayTeam: r.away_team || null,
+    cancelled: r.cancelled || false,
+    cancelNote: r.cancel_note || '',
+    fromSchedule: r.from_schedule || false,
+    playHQId: r.play_hq_id || null,
+    notifications: r.notifications || {},
+    rsvp: {},   // populated separately
+    team: [],   // populated separately
+  };
+}
+
+// ── Map app event → Supabase row ──────────────────────────────────────────
+function eventToRow(ev) {
+  return {
+    type: ev.type,
+    title: ev.title,
+    date: ev.date || null,
+    time: ev.time || null,
+    finish_time: ev.finishTime || null,
+    location: ev.location || null,
+    description: ev.description || null,
+    cost: ev.cost || 0,
+    stripe_link: ev.stripeLink || null,
+    image_url: ev.image || null,
+    grade: ev.grade || null,
+    grade_id: ev.gradeId || null,
+    round: ev.round || null,
+    home_team: ev.homeTeam || null,
+    away_team: ev.awayTeam || null,
+    cancelled: ev.cancelled || false,
+    cancel_note: ev.cancelNote || null,
+    from_schedule: ev.fromSchedule || false,
+    play_hq_id: ev.playHQId || null,
+    notifications: ev.notifications || {},
+  };
+}
+
+// ── Load all app data from Supabase ───────────────────────────────────────
+async function loadAppData() {
+  state.loading = true;
+  render();
+
+  try {
+    // Users / profiles
+    const profiles = await sb.select('profiles', 'order=first_name.asc');
+    state.users = Array.isArray(profiles) ? profiles.map(profileToUser) : [];
+
+    // Events
+    const evRows = await sb.select('events', 'order=date.asc');
+    state.events = Array.isArray(evRows) ? evRows.map(rowToEvent) : [];
+
+    // RSVPs — attach to events
+    const rsvps = await sb.select('rsvps', '');
+    if (Array.isArray(rsvps)) {
+      rsvps.forEach(r => {
+        const ev = state.events.find(e => e.id === r.event_id);
+        if (ev) ev.rsvp[r.user_id] = r.status;
+      });
+    }
+
+    // Team selections — attach to events
+    const teams = await sb.select('team_selections', '');
+    if (Array.isArray(teams)) {
+      teams.forEach(t => {
+        const ev = state.events.find(e => e.id === t.event_id);
+        if (ev) {
+          if (!ev.team) ev.team = [];
+          const u = state.users.find(u => u.id === t.user_id);
+          if (u) ev.team.push({ ...u, role: t.role });
+        }
+      });
+    }
+
+    // Announcements
+    const annRows = await sb.select('announcements', 'order=created_at.desc');
+    state.announcements = Array.isArray(annRows) ? annRows.map(a => ({
+      id: a.id,
+      title: a.title,
+      body: a.body,
+      image: a.image_url || null,
+      date: a.created_at ? a.created_at.slice(0,10) : '',
+      author: a.author_name || 'Admin',
+      recipients: a.recipients || 'all',
+    })) : [];
+
+    // Threads + messages
+    const threads = await sb.select('threads', 'order=created_at.asc');
+    if (Array.isArray(threads) && threads.length > 0) {
+      const msgs = await sb.select('messages', 'order=created_at.asc');
+      state.messages = threads.map(t => {
+        const threadMsgs = Array.isArray(msgs)
+          ? msgs.filter(m => m.thread_id === t.id).map(m => ({
+              id: m.id,
+              from: m.is_system ? 'system' : m.from_id,
+              text: m.text || '',
+              image: m.image_url || null,
+              system: m.is_system || false,
+              reactions: m.reactions || {},
+              ts: new Date(m.created_at).getTime(),
+            }))
+          : [];
+        const unread = {};
+        (t.participants || []).forEach(pid => { unread[pid] = 0; });
+        return {
+          id: t.id,
+          isGroup: t.is_group,
+          name: t.name || null,
+          participants: t.participants || [],
+          messages: threadMsgs,
+          unread,
+        };
+      });
+    } else {
+      state.messages = [];
+    }
+
+  } catch(e) {
+    console.error('loadAppData error:', e);
+  }
+
+  state.loading = false;
+}
+
+// ── Persist profile changes ───────────────────────────────────────────────
+async function persistProfiles() {
+  if (!state.user) return;
+  await sb.update('profiles', {
+    first_name: state.user.firstName,
+    last_name: state.user.lastName,
+    nickname: state.user.nickname,
+    mobile: state.user.mobile,
+    email: state.user.email,
+    avatar_url: state.user.avatar || null,
+  }, { id: state.user.id });
+  // Update local users array too
+  const u = state.users.find(u => u.id === state.user.id);
+  if (u) Object.assign(u, state.user);
+}
+
+// ── AUTH: Login ───────────────────────────────────────────────────────────
+async function handleLogin() {
+  const { email, password } = state.loginForm;
+  if (!email || !password) { state.error = 'Please enter your email and password.'; render(); return; }
+  state.loading = true; render();
+
+  const data = await sb.auth_signIn(email, password);
+  if (data.error || !data.access_token) {
+    state.error = 'Invalid email or password.';
+    state.loading = false; render(); return;
+  }
+
+  sb._token = data.access_token;
+  saveSession({ access_token: data.access_token, user_id: data.user?.id });
+
+  // Load profile
+  const profiles = await sb.select('profiles', `id=eq.${data.user.id}`);
+  if (!Array.isArray(profiles) || profiles.length === 0) {
+    state.error = 'Profile not found. Please contact your administrator.';
+    state.loading = false; render(); return;
+  }
+
+  state.user = profileToUser(profiles[0]);
+  await loadAppData();
+  navigate('home');
+  state.activeTab = 'home';
+  state.loading = false;
+  render();
+  setTimeout(requestNotificationPermission, 2000);
+}
+
+// ── AUTH: Sign up ─────────────────────────────────────────────────────────
+async function handleSignup() {
+  const f = state.signupForm;
+  if (!f.firstName || !f.lastName || !f.email || !f.password) {
+    state.error = 'Please fill in all fields.'; render(); return;
+  }
+  if (f.password !== f.confirm) {
+    state.error = 'Passwords do not match.'; render(); return;
+  }
+  state.loading = true; render();
+
+  // Create auth user
+  const data = await sb.auth_signUp(f.email, f.password);
+  if (data.error) {
+    state.error = data.error.message || 'Sign up failed.';
+    state.loading = false; render(); return;
+  }
+
+  sb._token = data.access_token || SUPABASE_ANON;
+  if (data.access_token) {
+    saveSession({ access_token: data.access_token, user_id: data.user?.id });
+  }
+
+  // Create profile row
+  const userId = data.user?.id;
+  if (userId) {
+    await sb.insert('profiles', {
+      id: userId,
+      first_name: f.firstName,
+      last_name: f.lastName,
+      email: f.email,
+      mobile: f.mobile || '',
+      nickname: '',
+      role: 'Player',
+      avatar_url: null,
+    });
+
+    state.user = {
+      id: userId,
+      email: f.email,
+      firstName: f.firstName,
+      lastName: f.lastName,
+      nickname: '',
+      mobile: f.mobile || '',
+      role: 'Player',
+      avatar: null,
+    };
+  }
+
+  await loadAppData();
+  state.loading = false;
+  navigate('joinclub');
+  render();
+}
+
+// ── AUTH: Join club (set role + nickname after signup) ────────────────────
+async function handleJoin() {
+  if (!state.user) return;
+  const { nickname, role, joinCode, avatarPreview } = state.joinForm;
+
+  let finalRole = role === 'player' ? 'Player' : 'Supporter';
+  if (joinCode === 'ADMIN2025')   finalRole = 'Administrator';
+  else if (joinCode === 'CAPTAIN2025') finalRole = 'Captain';
+
+  state.user.nickname = nickname || state.user.firstName;
+  state.user.role = finalRole;
+  if (avatarPreview) state.user.avatar = avatarPreview;
+  state.joinForm.avatarPreview = null;
+
+  // Persist to Supabase
+  await sb.update('profiles', {
+    nickname: state.user.nickname,
+    role: state.user.role,
+    avatar_url: state.user.avatar || null,
+  }, { id: state.user.id });
+
+  const u = state.users.find(u => u.id === state.user.id);
+  if (u) Object.assign(u, state.user);
+
+  navigate('home');
+  state.activeTab = 'home';
+  render();
+}
+
+// ── AUTH: Logout ──────────────────────────────────────────────────────────
+async function confirmLogout() {
+  await sb.auth_signOut();
+  state.user = null;
+  state.users = [];
+  state.events = [];
+  state.announcements = [];
+  state.messages = [];
+  state.modal = null;
+  navigate('splash');
+  render();
+}
+
+// ── AUTH: Delete profile ──────────────────────────────────────────────────
+async function confirmDeleteProfile() {
+  if (!state.user) return;
+  await sb.delete('profiles', { id: state.user.id });
+  await sb.auth_signOut();
+  state.user = null;
+  state.modal = null;
+  navigate('splash');
+  render();
+}
+
+// ── Try to restore session on app load ───────────────────────────────────
+async function tryRestoreSession() {
+  const session = loadSession();
+  if (!session?.access_token) return false;
+  sb._token = session.access_token;
+  const profiles = await sb.select('profiles', `id=eq.${session.user_id}`);
+  if (!Array.isArray(profiles) || profiles.length === 0) {
+    localStorage.removeItem('clubapp_session');
+    return false;
+  }
+  state.user = profileToUser(profiles[0]);
+  await loadAppData();
+  return true;
+}
+
+
+
 
 // ── HELPERS ─────────────────────────────────────────────────────────────
 function getSvgDataUrl() {
@@ -1678,68 +2007,10 @@ function setTab(tab) {
 }
 
 // ── AUTH ─────────────────────────────────────────────────────────────────
-function handleLogin() {
-  const { email, password } = state.loginForm;
-  const found = MOCK_USERS.find(u => u.email === email && u.password === password);
-  if (!found) { state.error = 'Invalid email or password.'; render(); return; }
-  state.user = found;
-  state.users = MOCK_USERS;
-  state.events = MOCK_EVENTS;
-  state.announcements = MOCK_ANNOUNCEMENTS;
-  state.messages = MOCK_MESSAGES;
-  // Pre-set some RSVP data
-  state.events.forEach(e => { if (!e.rsvp) e.rsvp = {}; });
-  navigate('home');
-  state.activeTab = 'home';
-  render();
-  setTimeout(requestNotificationPermission, 2000);
-}
-
-function handleSignup() {
-  const f = state.signupForm;
-  if (!f.firstName || !f.lastName || !f.email || !f.password) { state.error = 'Please fill in all fields.'; render(); return; }
-  if (f.password !== f.confirm) { state.error = 'Passwords do not match.'; render(); return; }
-  const exists = MOCK_USERS.find(u => u.email === f.email);
-  if (exists) { state.error = 'An account with this email already exists.'; render(); return; }
-  const newUser = { id: String(Date.now()), email: f.email, password: f.password, firstName: f.firstName, lastName: f.lastName, nickname: '', mobile: f.mobile, role: 'Player', avatar: null };
-  MOCK_USERS.push(newUser);
-  state.user = newUser;
-  state.users = MOCK_USERS;
-  state.events = MOCK_EVENTS;
-  state.announcements = MOCK_ANNOUNCEMENTS;
-  state.messages = MOCK_MESSAGES;
-  navigate('joinclub');
-}
-
-function handleJoin() {
-  if (!state.user) return;
-  const { nickname, role, joinCode, avatarPreview } = state.joinForm;
-  let finalRole = role === 'player' ? 'Player' : 'Supporter';
-  if (joinCode === 'ADMIN2025') finalRole = 'Administrator';
-  else if (joinCode === 'CAPTAIN2025') finalRole = 'Captain';
-  state.user.nickname = nickname || state.user.firstName;
-  state.user.role = finalRole;
-  if (avatarPreview) {
-    state.user.avatar = avatarPreview;
-    const u = state.users.find(u => u.id === state.user.id);
-    if (u) u.avatar = avatarPreview;
-    persistProfiles();
-  }
-  state.joinForm.avatarPreview = null; // clear preview
-  navigate('home');
-  state.activeTab = 'home';
-  render();
-}
-
+// ── EVENTS ────────────────────────────────────────────────────────────────
 function handleLogout() {
   state.modal = { type: 'logout' };
   render();
-}
-
-function confirmLogout() {
-  state.user = null;
-  state.modal = null;
-  navigate('splash');
 }
 
 function handleDeleteProfile() {
@@ -1747,33 +2018,24 @@ function handleDeleteProfile() {
   render();
 }
 
-function confirmDeleteProfile() {
-  const idx = MOCK_USERS.findIndex(u => u.id === state.user.id);
-  if (idx >= 0) MOCK_USERS.splice(idx, 1);
-  state.user = null;
-  state.modal = null;
-  navigate('splash');
-}
-
-// ── EVENTS ────────────────────────────────────────────────────────────────
 function handleRSVP(eventId, status, currentStatus, stripeLink) {
   const ev = state.events.find(e => e.id === eventId);
   if (!ev || !state.user) return;
 
-  // For paid events selecting Going — open payment link then mark as going
   if (status === 'going' && currentStatus !== 'going' && ev.cost > 0) {
-    if (stripeLink) {
-      window.location.href = stripeLink;
-    }
+    if (stripeLink) window.location.href = stripeLink;
     ev.rsvp[state.user.id] = 'going';
+    sb.upsert('rsvps', { event_id: eventId, user_id: state.user.id, status: 'going' });
     render();
     return;
   }
 
   if (currentStatus === status) {
     delete ev.rsvp[state.user.id];
+    sb.delete('rsvps', { event_id: eventId, user_id: state.user.id });
   } else {
     ev.rsvp[state.user.id] = status;
+    sb.upsert('rsvps', { event_id: eventId, user_id: state.user.id, status });
   }
   render();
 }
@@ -1797,10 +2059,11 @@ function handleCreateEvent() {
       ev.stripeLink  = stripeLink;
       if (f.image) ev.image = f.image;
       ev.notifications = { ...f.notifications };
+      // Persist to Supabase
+      sb.update('events', eventToRow(ev), { id: ev.id });
     }
     const editedId = state.editingEventId;
     state.editingEventId = null;
-    // Reset form
     state.createEventForm = {
       category: 'social', title: '', date: '', time: '', finishTime: '', location: '',
       description: '', hasCost: false, cost: '', recipients: 'all',
@@ -1831,16 +2094,19 @@ function handleCreateEvent() {
       team: [],
     };
     state.events.unshift(newEv);
+    // Persist to Supabase (fire and forget — get real ID back async)
+    sb.insert('events', eventToRow(newEv)).then(rows => {
+      if (Array.isArray(rows) && rows[0]?.id) {
+        // Update local event with real Supabase UUID
+        const local = state.events.find(e => e.id === newEv.id);
+        if (local) local.id = rows[0].id;
+      }
+    });
 
-    // Notify members of new social event if immediate notification ticked
     if (newEv.type === 'social' && f.notifications?.immediate) {
-      sendPushNotification(
-        `🎉 New Event: ${newEv.title}`,
-        `${formatDate(newEv.date)} at ${newEv.location}`,
-      );
+      sendPushNotification(`🎉 New Event: ${newEv.title}`, `${formatDate(newEv.date)} at ${newEv.location}`);
     }
 
-    // Reset form
     state.createEventForm = {
       category: 'social', title: '', date: '', time: '', finishTime: '', location: '',
       description: '', hasCost: false, cost: '', recipients: 'all',
@@ -1858,25 +2124,28 @@ function sendChatMessage() {
   if (!state.chatInput.trim()) return;
   const thread = state.messages.find(m => m.id === state.activeChatId);
   if (thread && state.user) {
+    const text = state.chatInput.trim();
     const newMsg = {
       id: 'msg' + Date.now(),
       from: state.user.id,
-      text: state.chatInput.trim(),
+      text,
       ts: Date.now(),
     };
     thread.messages.push(newMsg);
     thread.participants.forEach(pid => {
-      if (pid !== state.user.id) {
-        thread.unread[pid] = (thread.unread[pid] || 0) + 1;
-      }
+      if (pid !== state.user.id) thread.unread[pid] = (thread.unread[pid] || 0) + 1;
     });
-    // Notify group chats only (1:1 chats notify naturally via unread badge)
+    // Persist to Supabase
+    sb.insert('messages', {
+      thread_id: thread.id,
+      from_id: state.user.id,
+      text,
+      is_system: false,
+    });
     if (thread.isGroup) {
-      const senderName = state.user.nickname || state.user.firstName;
-      const groupName  = thread.name || 'Group Chat';
       sendPushNotification(
-        `💬 ${groupName}`,
-        `${senderName}: ${state.chatInput.trim().substring(0, 80)}`,
+        `💬 ${thread.name || 'Group Chat'}`,
+        `${state.user.nickname || state.user.firstName}: ${text.substring(0, 80)}`,
       );
     }
     state.chatInput = '';
@@ -4237,7 +4506,7 @@ window.toggleContactSelect = (id) => {
   render();
 };
 
-window.startConversation = () => {
+window.startConversation = async () => {
   const selected = state.selectedContacts;
   if (selected.length === 0) return;
 
@@ -4259,11 +4528,22 @@ window.startConversation = () => {
     }
   }
 
+  const groupName = isGroup ? (state.newGroupName || 'Group Chat') : null;
+
+  // Persist thread to Supabase first to get real UUID
+  const rows = await sb.insert('threads', {
+    is_group: isGroup,
+    name: groupName,
+    participants,
+  });
+
+  const realId = Array.isArray(rows) && rows[0]?.id ? rows[0].id : ('m' + Date.now());
+
   const newThread = {
-    id: 'm' + Date.now(),
+    id: realId,
     isGroup,
     participants,
-    name: isGroup ? (state.newGroupName || 'Group Chat') : null,
+    name: groupName,
     messages: [],
     unread: Object.fromEntries(participants.map(id => [id, 0])),
   };
@@ -4335,16 +4615,10 @@ window.saveProfile = () => {
   state.user.email     = email;
 
   const u = state.users.find(u => u.id === state.user.id);
-  if (u) {
-    u.firstName = fn;
-    u.lastName  = ln;
-    u.nickname  = nick;
-    u.mobile    = mob;
-    u.email     = email;
-  }
+  if (u) Object.assign(u, { firstName: fn, lastName: ln, nickname: nick, mobile: mob, email });
 
-  showToast('Profile saved!');
   persistProfiles();
+  showToast('Profile saved!');
   render();
 };
 
@@ -4365,7 +4639,6 @@ window.handleAnnImageUpload = (event) => {
 
 window.publishAnnouncement = () => {
   const f = state.createAnnouncementForm;
-  // Read any un-saved text values directly from DOM at publish time
   const title = (document.getElementById('ann-title')?.value || f.title).trim();
   const body  = (document.getElementById('ann-body')?.value  || f.body).trim();
 
@@ -4387,20 +4660,22 @@ window.publishAnnouncement = () => {
 
   state.announcements.unshift(newAnn);
 
-  // Send push notification if admin ticked the box
+  // Persist to Supabase
+  sb.insert('announcements', {
+    title,
+    body,
+    author_id: u.id,
+    author_name: u.nickname || u.firstName,
+    image_url: f.image || null,
+    recipients: f.recipients,
+  });
+
   if (f.sendNotification) {
-    sendPushNotification(
-      `📢 ${title}`,
-      body.substring(0, 100),
-    );
+    sendPushNotification(`📢 ${title}`, body.substring(0, 100));
   }
 
-  // Reset form
-  state.createAnnouncementForm = {
-    title: '', body: '', image: null, recipients: 'all', sendNotification: true,
-  };
+  state.createAnnouncementForm = { title: '', body: '', image: null, recipients: 'all', sendNotification: true };
   state.error = '';
-
   showToast(f.sendNotification ? 'Announcement published & notification sent!' : 'Announcement published!');
   navigate('announcements');
   state.prevScreen = 'home';
@@ -4456,7 +4731,7 @@ window.removeUserAvatar = (id) => {
   if (!u) return;
   u.avatar = null;
   if (state.user?.id === id) state.user.avatar = null;
-  persistProfiles();
+  sb.update('profiles', { avatar_url: null }, { id });
   showToast('Photo removed.');
   render();
 };
@@ -4464,11 +4739,16 @@ window.removeUserAvatar = (id) => {
 window.saveUserDetail = (id) => {
   const u = state.users.find(u => u.id === id);
   if (u) {
-    u.firstName = document.getElementById('ud-fn')?.value || u.firstName;
-    u.lastName = document.getElementById('ud-ln')?.value || u.lastName;
-    u.nickname = document.getElementById('ud-nick')?.value || u.nickname;
-    u.mobile = document.getElementById('ud-mob')?.value || u.mobile;
-    u.role = document.getElementById('ud-role')?.value || u.role;
+    u.firstName = document.getElementById('ud-fn')?.value  || u.firstName;
+    u.lastName  = document.getElementById('ud-ln')?.value  || u.lastName;
+    u.nickname  = document.getElementById('ud-nick')?.value || u.nickname;
+    u.mobile    = document.getElementById('ud-mob')?.value  || u.mobile;
+    u.role      = document.getElementById('ud-role')?.value || u.role;
+    // Persist to Supabase
+    sb.update('profiles', {
+      first_name: u.firstName, last_name: u.lastName,
+      nickname: u.nickname, mobile: u.mobile, role: u.role,
+    }, { id });
   }
   showToast('User saved!');
   navigate('userlist');
@@ -4477,6 +4757,7 @@ window.saveUserDetail = (id) => {
 window.deleteUser = (id) => {
   const idx = state.users.findIndex(u => u.id === id);
   if (idx >= 0) state.users.splice(idx, 1);
+  sb.delete('profiles', { id });
   navigate('userlist');
 };
 
@@ -4575,8 +4856,11 @@ window.generateTrainingSchedule = () => {
     return `${yyyy}-${mm}-${dd}`;
   }
 
-  // Remove existing schedule-generated sessions first
   state.events = state.events.filter(e => !(e.type === 'training' && e.fromSchedule));
+  // Also delete old schedule events from Supabase
+  sb.select('events', 'type=eq.training&from_schedule=eq.true').then(rows => {
+    if (Array.isArray(rows)) rows.forEach(r => sb.delete('events', { id: r.id }));
+  });
 
   // Parse as local midnight (avoids UTC-shift bug)
   const [sy, sm, sd] = f.commenceDate.split('-').map(Number);
@@ -4610,6 +4894,19 @@ window.generateTrainingSchedule = () => {
   }
 
   state.events.push(...sessions);
+  // Persist all new sessions to Supabase
+  sb.insert('events', sessions.map(s => ({
+    type: 'training',
+    title: s.title,
+    date: s.date,
+    time: s.time,
+    finish_time: s.finishTime,
+    location: s.location,
+    description: s.description || '',
+    cost: 0,
+    cancelled: false,
+    from_schedule: true,
+  })));
   state.error = '';
   // Navigate to Training tab in Events
   state.activeTab = 'events';
@@ -4644,6 +4941,7 @@ window.amendSession = (id) => {
   ev.location   = document.getElementById('ts-modal-location')?.value || ev.location;
   const notify  = state.modal?.notifyCancel !== false;
   state.modal = null;
+  sb.update('events', { time: ev.time, finish_time: ev.finishTime, location: ev.location }, { id });
   if (notify) {
     sendPushNotification(
       `📅 Training Updated: ${formatDate(ev.date)}`,
@@ -4662,6 +4960,7 @@ window.cancelSession = (id) => {
   ev.cancelled  = true;
   ev.cancelNote = note;
   state.modal = null;
+  sb.update('events', { cancelled: true, cancel_note: note }, { id });
   if (notify) {
     sendPushNotification(
       `❌ Training Cancelled: ${formatDate(ev.date)}`,
@@ -4678,6 +4977,7 @@ window.reinstateSession = (id) => {
   ev.cancelled  = false;
   ev.cancelNote = '';
   state.modal = null;
+  sb.update('events', { cancelled: false, cancel_note: null }, { id });
   showToast('Session reinstated!');
   render();
 };
@@ -5029,7 +5329,16 @@ async function sendPushNotification(title, message, url = '/') {
 }
 
 // ── BOOT ──────────────────────────────────────────────────────────────────
-render();
+// Try to restore an existing session, otherwise show splash screen
+(async () => {
+  render(); // show splash immediately
+  const restored = await tryRestoreSession();
+  if (restored) {
+    navigate('home');
+    state.activeTab = 'home';
+  }
+  render();
+})();
 </script>
 </body>
 </html>
