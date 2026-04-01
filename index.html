@@ -626,12 +626,15 @@
   }
 
   .chat-bubble-time {
-    font-size: 10px;
+    font-size: 11px;
     color: var(--text-dim);
-    margin-top: 2px;
-    padding: 0 4px;
+    margin-top: 3px;
+    padding: 0 2px;
+    display: block;
+    width: 100%;
   }
   .chat-bubble-wrap.mine .chat-bubble-time { text-align: right; }
+  .chat-bubble-wrap.theirs .chat-bubble-time { text-align: left; }
 
   .chat-input-row {
     display: flex;
