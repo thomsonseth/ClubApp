@@ -1304,7 +1304,7 @@
   .error-msg { color: var(--red); font-size: 13px; }
 </style>
   <!-- OneSignal Push Notifications -->
-  <!-- Replace YOUR_ONESIGNAL_APP_ID below with your App ID from onesignal.com -->
+  <!-- Replace 0a0d5972-3d46-4a19-a343-e0ae3222aa9b below with your App ID from onesignal.com -->
   <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
   <script>
     window.OneSignalDeferred = window.OneSignalDeferred || [];
@@ -4997,12 +4997,12 @@ async function requestNotificationPermission() {
 }
 
 // Send a push notification via OneSignal REST API
-// Replace YOUR_ONESIGNAL_APP_ID and os_v2_app_bigvs4r5izfbti2d4cxdeivkto4oh2gi7qkufl4kwourkzstjygyxpllctkwxijfu6jpkvoe43qelbj334ymjilqvuddxghxzmxxnzy with your real values
-const ONESIGNAL_APP_ID      = 'YOUR_ONESIGNAL_APP_ID';
+// Replace 0a0d5972-3d46-4a19-a343-e0ae3222aa9b and os_v2_app_bigvs4r5izfbti2d4cxdeivkto4oh2gi7qkufl4kwourkzstjygyxpllctkwxijfu6jpkvoe43qelbj334ymjilqvuddxghxzmxxnzy with your real values
+const ONESIGNAL_APP_ID      = '0a0d5972-3d46-4a19-a343-e0ae3222aa9b';
 const ONESIGNAL_REST_API_KEY = 'os_v2_app_bigvs4r5izfbti2d4cxdeivkto4oh2gi7qkufl4kwourkzstjygyxpllctkwxijfu6jpkvoe43qelbj334ymjilqvuddxghxzmxxnzy';
 
 async function sendPushNotification(title, message, url = '/') {
-  if (!ONESIGNAL_APP_ID || ONESIGNAL_APP_ID === 'YOUR_ONESIGNAL_APP_ID') return;
+  if (!ONESIGNAL_APP_ID || ONESIGNAL_APP_ID === '0a0d5972-3d46-4a19-a343-e0ae3222aa9b') return;
   try {
     await fetch('https://onesignal.com/api/v1/notifications', {
       method: 'POST',
