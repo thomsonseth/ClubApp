@@ -590,6 +590,8 @@
   .chat-bubble-wrap { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 2px; }
   .chat-bubble-wrap.mine { justify-content: flex-end; }
   .chat-bubble-wrap.theirs { justify-content: flex-start; }
+  .chat-bubble-wrap.mine .chat-bubble { max-width: 78%; }
+  .chat-bubble-wrap.theirs .chat-bubble { max-width: 72%; }
 
   .chat-sender-avatar {
     width: 28px; height: 28px; border-radius: 50%;
@@ -602,12 +604,14 @@
   .chat-sender-avatar.placeholder { visibility: hidden; }
 
   .chat-bubble {
-    max-width: 72%;
+    max-width: 75%;
+    min-width: 60px;
     padding: 10px 14px;
     border-radius: 18px;
-    font-size: 14px;
-    line-height: 1.5;
+    font-size: 15px;
+    line-height: 1.45;
     word-break: break-word;
+    white-space: pre-wrap;
   }
   .chat-bubble.theirs {
     background: var(--surface);
