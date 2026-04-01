@@ -602,7 +602,7 @@
   .chat-sender-avatar.placeholder { visibility: hidden; }
 
   .chat-bubble {
-    width: 100%;
+    max-width: 100%;
     min-width: 48px;
     padding: 9px 13px;
     border-radius: 18px;
@@ -610,6 +610,7 @@
     line-height: 1.4;
     word-break: break-word;
     white-space: pre-wrap;
+    display: inline-block;
   }
   .chat-bubble.theirs {
     background: var(--surface);
@@ -3468,15 +3469,13 @@ function buildChat() {
       ${showDate ? `<div class="chat-date-divider">${msgDate}</div>` : ''}
       <div class="chat-bubble-wrap ${isMine ? 'mine' : 'theirs'}" style="position:relative;">
         ${!isMine ? avatarHtml : ''}
-        <div style="display:flex;flex-direction:column;max-width:${isMine ? '85%' : '82%'};">
+        <div style="max-width:${isMine ? '85%' : '82%'}; display:block;">
           ${senderName}
-          <div oncontextmenu="showReactionPicker('${msg.id}'); return false;"
-               ondblclick="showReactionPicker('${msg.id}')"
-               style="position:relative;">
+          <div style="position:relative;">
             ${pickerHtml}
             ${bubbleContent}
           </div>
-          <div class="chat-bubble-time" style="text-align:${isMine ? 'right' : 'left'};">${formatMsgTimestamp(msg.ts)}</div>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:3px;padding:0 2px;text-align:${isMine ? 'right' : 'left'};">${formatMsgTimestamp(msg.ts)}</div>
           ${reactionChips ? `<div class="reaction-bar">${reactionChips}</div>` : ''}
         </div>
       </div>`;
