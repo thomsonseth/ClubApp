@@ -5000,7 +5000,7 @@ async function requestNotificationPermission() {
 }
 
 async function sendPushNotification(title, message, url = '/') {
-  if (!ONESIGNAL_WORKER_URL || ONESIGNAL_WORKER_URL.includes('thomsonseth')) return;
+  if (!ONESIGNAL_WORKER_URL || ONESIGNAL_WORKER_URL.includes('YOUR_SUBDOMAIN')) return;
   try {
     await fetch(ONESIGNAL_WORKER_URL, {
       method: 'POST',
