@@ -3469,7 +3469,7 @@ function buildChat() {
       ${showDate ? `<div class="chat-date-divider">${msgDate}</div>` : ''}
       <div class="chat-bubble-wrap ${isMine ? 'mine' : 'theirs'}" style="position:relative;">
         ${!isMine ? avatarHtml : ''}
-        <div style="max-width:${isMine ? '85%' : '82%'}; display:block;">
+        <div style="display:inline-block; max-width:${isMine ? '85%' : '82%'}; min-width:0;">
           ${senderName}
           <div style="position:relative;">
             ${pickerHtml}
@@ -5383,10 +5383,11 @@ async function pollMessages() {
       }
 
       const existingIds = new Set(existing.messages.map(m => m.id));
+      let addedNew = false;
       threadMsgs.forEach(m => {
-        if (!existingIds.has(m.id)) {
-          // New message found
-          const newMsg = {
+        if (existingIds.has(m.id)) return; // already have this message
+        existingIds.add(m.id); // prevent duplicates within same poll
+        const newMsg = {
             id: m.id,
             from: m.is_system ? 'system' : m.from_id,
             text: m.text || '',
@@ -5409,7 +5410,6 @@ async function pollMessages() {
               newMsgThread = existing;
             }
           }
-        }
       });
     });
 
