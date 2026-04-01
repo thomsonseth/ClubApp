@@ -590,8 +590,6 @@
   .chat-bubble-wrap { display: flex; align-items: flex-end; gap: 6px; margin-bottom: 2px; }
   .chat-bubble-wrap.mine { justify-content: flex-end; }
   .chat-bubble-wrap.theirs { justify-content: flex-start; }
-  .chat-bubble-wrap.mine .chat-bubble { max-width: 85%; }
-  .chat-bubble-wrap.theirs .chat-bubble { max-width: 82%; }
 
   .chat-sender-avatar {
     width: 24px; height: 24px; border-radius: 50%;
@@ -604,7 +602,7 @@
   .chat-sender-avatar.placeholder { visibility: hidden; }
 
   .chat-bubble {
-    max-width: 85%;
+    width: 100%;
     min-width: 48px;
     padding: 9px 13px;
     border-radius: 18px;
@@ -3470,7 +3468,7 @@ function buildChat() {
       ${showDate ? `<div class="chat-date-divider">${msgDate}</div>` : ''}
       <div class="chat-bubble-wrap ${isMine ? 'mine' : 'theirs'}" style="position:relative;">
         ${!isMine ? avatarHtml : ''}
-        <div style="display:flex;flex-direction:column;align-items:${isMine ? 'flex-end' : 'flex-start'};">
+        <div style="display:flex;flex-direction:column;max-width:${isMine ? '85%' : '82%'};">
           ${senderName}
           <div oncontextmenu="showReactionPicker('${msg.id}'); return false;"
                ondblclick="showReactionPicker('${msg.id}')"
