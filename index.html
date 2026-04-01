@@ -3470,7 +3470,7 @@ function buildChat() {
       ${showDate ? `<div class="chat-date-divider">${msgDate}</div>` : ''}
       <div class="chat-bubble-wrap ${isMine ? 'mine' : 'theirs'}" style="position:relative;">
         ${!isMine ? avatarHtml : ''}
-        <div style="position:relative;">
+        <div style="display:flex;flex-direction:column;align-items:${isMine ? 'flex-end' : 'flex-start'};">
           ${senderName}
           <div oncontextmenu="showReactionPicker('${msg.id}'); return false;"
                ondblclick="showReactionPicker('${msg.id}')"
@@ -3478,7 +3478,7 @@ function buildChat() {
             ${pickerHtml}
             ${bubbleContent}
           </div>
-          <div class="chat-bubble-time">${formatMsgTimestamp(msg.ts)}</div>
+          <div class="chat-bubble-time" style="text-align:${isMine ? 'right' : 'left'};">${formatMsgTimestamp(msg.ts)}</div>
           ${reactionChips ? `<div class="reaction-bar">${reactionChips}</div>` : ''}
         </div>
       </div>`;
