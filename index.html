@@ -2083,10 +2083,9 @@ function handleCreateEvent() {
       sb.update('events', eventToRow(ev), { id: ev.id });
       // Send notification if immediate ticked
       if (f.notifications?.immediate) {
-        const emoji = ev.type === 'social' ? '🎉' : ev.type === 'match' ? '🏏' : '📅';
         sendPushNotification(
-          `${emoji} Event Updated: ${ev.title}`,
-          `${formatDate(ev.date)}${ev.time ? ' at ' + formatTime(ev.time) : ''}${ev.location ? ' · ' + ev.location : ''}`,
+          `Event Updated: ${ev.title}`,
+          (ev.description || `${formatDate(ev.date)}${ev.time ? ' at ' + formatTime(ev.time) : ''}${ev.location ? ' · ' + ev.location : ''}`).substring(0, 100),
           `https://generic-generals.netlify.app/#screen=eventdetail&id=${ev.id}`,
         );
       }
@@ -2133,10 +2132,9 @@ function handleCreateEvent() {
     });
 
     if (f.notifications?.immediate) {
-      const emoji = newEv.type === 'social' ? '🎉' : newEv.type === 'match' ? '🏏' : '📅';
       sendPushNotification(
-        `${emoji} New ${newEv.type.charAt(0).toUpperCase() + newEv.type.slice(1)}: ${newEv.title}`,
-        `${formatDate(newEv.date)}${newEv.time ? ' at ' + formatTime(newEv.time) : ''}${newEv.location ? ' · ' + newEv.location : ''}`,
+        `New Event: ${newEv.title}`,
+        (newEv.description || `${formatDate(newEv.date)}${newEv.time ? ' at ' + formatTime(newEv.time) : ''}${newEv.location ? ' · ' + newEv.location : ''}`).substring(0, 100),
         `https://generic-generals.netlify.app/#screen=eventdetail&id=${newEv.id}`,
       );
     }
@@ -2178,8 +2176,8 @@ function sendChatMessage() {
     });
     if (thread.isGroup) {
       sendPushNotification(
-        `💬 ${thread.name || 'Group Chat'}`,
-        `${state.user.nickname || state.user.firstName}: ${text.substring(0, 80)}`,
+        `Message from ${state.user.nickname || state.user.firstName}`,
+        text.substring(0, 100),
         `https://generic-generals.netlify.app/#screen=chat&id=${thread.id}`,
       );
     }
@@ -2222,7 +2220,7 @@ function publishTeamSelection() {
   if (ev) {
     ev.team = state.selectedPlayers.map(p => ({ ...p }));
     sendPushNotification(
-      `🏏 Team Selected: ${ev.title}`,
+      `Team Selected: ${ev.title}`,
       `The team for ${formatDate(ev.date)} has been announced. Check the app to see if you're playing.`,
       `https://generic-generals.netlify.app/#screen=eventdetail&id=${state.activeEventId}`,
     );
@@ -4768,7 +4766,7 @@ window.publishAnnouncement = () => {
     }
     if (f.sendNotification) {
       sendPushNotification(
-        `📢 ${title}`,
+        `Announcement: ${title}`,
         body.substring(0, 100),
         annId ? `https://generic-generals.netlify.app/#screen=announcements&id=${annId}` : 'https://generic-generals.netlify.app/#screen=announcements',
       );
@@ -5049,7 +5047,7 @@ window.amendSession = (id) => {
   sb.update('events', { time: ev.time, finish_time: ev.finishTime, location: ev.location }, { id });
   if (notify) {
     sendPushNotification(
-      `📅 Training Updated: ${formatDate(ev.date)}`,
+      `Training Updated: ${formatDate(ev.date)}`,
       `${ev.time}–${ev.finishTime} at ${ev.location}`,
       `https://generic-generals.netlify.app/#screen=eventdetail&id=${id}`,
     );
@@ -5069,7 +5067,7 @@ window.cancelSession = (id) => {
   sb.update('events', { cancelled: true, cancel_note: note }, { id });
   if (notify) {
     sendPushNotification(
-      `❌ Training Cancelled: ${formatDate(ev.date)}`,
+      `Training Cancelled: ${formatDate(ev.date)}`,
       note || 'This training session has been cancelled.',
       `https://generic-generals.netlify.app/#screen=eventdetail&id=${id}`,
     );
@@ -5425,7 +5423,8 @@ async function sendPushNotification(title, message, url = '/') {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         included_segments: ['All'],
-        headings:  { en: title },
+        headings:  { en: CLUB_CONFIG.name },
+        subtitle:  { en: title },
         contents:  { en: message },
         url,
       }),
@@ -5579,8 +5578,8 @@ async function pollAll() {
         const senderName = sender ? (sender.nickname || sender.firstName) : 'Someone';
         const threadName = newMsgThread.isGroup ? (newMsgThread.name || 'Group Chat') : senderName;
         sendPushNotification(
-          `💬 ${threadName}`,
-          `${newMsgThread.isGroup ? senderName + ': ' : ''}${newMsgText.substring(0, 80)}`,
+          `Message from ${senderName}`,
+          newMsgText.substring(0, 100),
           `https://generic-generals.netlify.app/#screen=chat&id=${newMsgThread.id}`,
         );
       }
