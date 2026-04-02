@@ -2035,7 +2035,7 @@ function handleRSVP(eventId, status, currentStatus, stripeLink) {
   if (!ev || !state.user) return;
 
   if (status === 'going' && currentStatus !== 'going' && ev.cost > 0) {
-    if (stripeLink && stripeLink.includes('stripe.com') && !stripeLink.includes('mock')) {
+    if (stripeLink && stripeLink.startsWith('http') && !stripeLink.includes('mock')) {
       window.open(stripeLink, '_blank');
     }
     ev.rsvp[state.user.id] = 'going';
@@ -2837,7 +2837,7 @@ function buildEventDetail() {
           <div class="event-detail-meta">${icons.mappin} ${ev.location} &nbsp;<span style="color:var(--teal);cursor:pointer;font-size:13px;">Open in Maps</span></div>
         </div>
         ${ev.description ? `<div class="card"><div style="font-size:14px;color:var(--text-muted);line-height:1.6;">${ev.description}</div></div>` : ''}
-        ${ev.cost > 0 ? `<div style="color:var(--teal);font-size:15px;font-weight:700;">🎟 $${ev.cost.toFixed(2)} per person${ev.stripeLink ? ' — select Going to pay' : ''}</div>` : ''}
+        ${ev.cost > 0 ? `<div style="color:var(--teal);font-size:15px;font-weight:700;">🎟 $${ev.cost.toFixed(2)} per person${ev.stripeLink ? ' — tap Going to pay online' : ''}</div>` : ''}
         ${rsvpSection}
         ${rsvpSummary}
         ${teamSection}
@@ -2940,13 +2940,20 @@ function buildCreateEvent() {
         </div>
         ${f.stripeLink
           ? `<div class="stripe-link-box">
-               <div class="stripe-link-label">💳 Stripe Payment Link</div>
+               <div class="stripe-link-label">💳 Payment Link</div>
                <div class="stripe-link-url">${f.stripeLink}</div>
-               <div style="font-size:11px;color:var(--text-dim);margin-top:2px;">This link will be included in event invitations</div>
+               <div style="display:flex;gap:8px;margin-top:8px;">
+                 <input class="input-field" style="flex:1;font-size:12px;" value="${f.stripeLink}"
+                   oninput="saveCEField('stripeLink', this.value)" placeholder="https://..."/>
+                 <button class="btn-secondary" style="padding:8px 12px;font-size:12px;white-space:nowrap;" onclick="saveCEField('stripeLink',null);render()">Remove</button>
+               </div>
              </div>`
-          : `<button class="btn-secondary" style="font-size:14px;padding:12px;" onclick="generateStripeLink()">
-               💳 Generate Stripe Payment Link
-             </button>`}
+          : `<div>
+               <label class="input-label">💳 Payment Link <span style="color:var(--text-dim);font-weight:400;">(optional — Stripe, Square, PayPal etc.)</span></label>
+               <input class="input-field" placeholder="Paste your payment link here e.g. https://buy.stripe.com/..."
+                 value=""
+                 oninput="saveCEField('stripeLink', this.value || null)"/>
+             </div>`}
       ` : ''}
     </div>`;
 
