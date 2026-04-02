@@ -1875,6 +1875,8 @@ async function handleJoin() {
   if (window.OneSignal) window.OneSignal.login(state.user.id).catch(() => {});
   render();
 }
+
+async function confirmLogout() {
   stopPolling();
   if (window.OneSignal) window.OneSignal.logout().catch(() => {});
   await sb.auth_signOut();
