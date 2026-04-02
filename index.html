@@ -2035,7 +2035,9 @@ function handleRSVP(eventId, status, currentStatus, stripeLink) {
   if (!ev || !state.user) return;
 
   if (status === 'going' && currentStatus !== 'going' && ev.cost > 0) {
-    if (stripeLink) window.location.href = stripeLink;
+    if (stripeLink && stripeLink.includes('stripe.com') && !stripeLink.includes('mock')) {
+      window.open(stripeLink, '_blank');
+    }
     ev.rsvp[state.user.id] = 'going';
     sb.upsert('rsvps', { event_id: eventId, user_id: state.user.id, status: 'going' });
     render();
