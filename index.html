@@ -2085,7 +2085,7 @@ function handleCreateEvent() {
       if (f.notifications?.immediate) {
         sendPushNotification(
           `Event Updated: ${ev.title}`,
-          (ev.description || `${formatDate(ev.date)}${ev.time ? ' at ' + formatTime(ev.time) : ''}${ev.location ? ' · ' + ev.location : ''}`).substring(0, 100),
+          (ev.description || `${formatDate(ev.date)}${ev.time ? ' at ' + formatTime(ev.time) : ''}${ev.location ? ' · ' + ev.location : ''}`).substring(0, 200),
           `https://generic-generals.netlify.app/#screen=eventdetail&id=${ev.id}`,
         );
       }
@@ -2134,7 +2134,7 @@ function handleCreateEvent() {
     if (f.notifications?.immediate) {
       sendPushNotification(
         `New Event: ${newEv.title}`,
-        (newEv.description || `${formatDate(newEv.date)}${newEv.time ? ' at ' + formatTime(newEv.time) : ''}${newEv.location ? ' · ' + newEv.location : ''}`).substring(0, 100),
+        (newEv.description || `${formatDate(newEv.date)}${newEv.time ? ' at ' + formatTime(newEv.time) : ''}${newEv.location ? ' · ' + newEv.location : ''}`).substring(0, 200),
         `https://generic-generals.netlify.app/#screen=eventdetail&id=${newEv.id}`,
       );
     }
@@ -2177,7 +2177,7 @@ function sendChatMessage() {
     if (thread.isGroup) {
       sendPushNotification(
         `Message from ${state.user.nickname || state.user.firstName}`,
-        text.substring(0, 100),
+        text.substring(0, 200),
         `https://generic-generals.netlify.app/#screen=chat&id=${thread.id}`,
       );
     }
@@ -4767,7 +4767,7 @@ window.publishAnnouncement = () => {
     if (f.sendNotification) {
       sendPushNotification(
         `Announcement: ${title}`,
-        body.substring(0, 100),
+        body.substring(0, 200),
         annId ? `https://generic-generals.netlify.app/#screen=announcements&id=${annId}` : 'https://generic-generals.netlify.app/#screen=announcements',
       );
     }
@@ -5423,9 +5423,8 @@ async function sendPushNotification(title, message, url = '/') {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         included_segments: ['All'],
-        headings:  { en: CLUB_CONFIG.name },
-        subtitle:  { en: title },
-        contents:  { en: message },
+        headings: { en: title },
+        contents: { en: message.substring(0, 200) },
         url,
       }),
     });
@@ -5579,7 +5578,7 @@ async function pollAll() {
         const threadName = newMsgThread.isGroup ? (newMsgThread.name || 'Group Chat') : senderName;
         sendPushNotification(
           `Message from ${senderName}`,
-          newMsgText.substring(0, 100),
+          newMsgText.substring(0, 200),
           `https://generic-generals.netlify.app/#screen=chat&id=${newMsgThread.id}`,
         );
       }
