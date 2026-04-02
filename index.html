@@ -2087,6 +2087,7 @@ function handleCreateEvent() {
         sendPushNotification(
           `${emoji} Event Updated: ${ev.title}`,
           `${formatDate(ev.date)}${ev.time ? ' at ' + formatTime(ev.time) : ''}${ev.location ? ' · ' + ev.location : ''}`,
+          `https://generic-generals.netlify.app/#screen=eventdetail&id=${ev.id}`,
         );
       }
     }
@@ -2136,6 +2137,7 @@ function handleCreateEvent() {
       sendPushNotification(
         `${emoji} New ${newEv.type.charAt(0).toUpperCase() + newEv.type.slice(1)}: ${newEv.title}`,
         `${formatDate(newEv.date)}${newEv.time ? ' at ' + formatTime(newEv.time) : ''}${newEv.location ? ' · ' + newEv.location : ''}`,
+        `https://generic-generals.netlify.app/#screen=eventdetail&id=${newEv.id}`,
       );
     }
 
@@ -2178,6 +2180,7 @@ function sendChatMessage() {
       sendPushNotification(
         `💬 ${thread.name || 'Group Chat'}`,
         `${state.user.nickname || state.user.firstName}: ${text.substring(0, 80)}`,
+        `https://generic-generals.netlify.app/#screen=chat&id=${thread.id}`,
       );
     }
     state.chatInput = '';
@@ -2221,6 +2224,7 @@ function publishTeamSelection() {
     sendPushNotification(
       `🏏 Team Selected: ${ev.title}`,
       `The team for ${formatDate(ev.date)} has been announced. Check the app to see if you're playing.`,
+      `https://generic-generals.netlify.app/#screen=eventdetail&id=${state.activeEventId}`,
     );
   }
   state.selectedPlayers = [];
@@ -4755,10 +4759,24 @@ window.publishAnnouncement = () => {
     author_name: u.nickname || u.firstName,
     image_url: f.image || null,
     recipients: f.recipients,
+  }).then(rows => {
+    const annId = Array.isArray(rows) && rows[0]?.id ? rows[0].id : null;
+    // Update local announcement with real ID
+    if (annId) {
+      const local = state.announcements[0];
+      if (local && local.id === newAnn.id) local.id = annId;
+    }
+    if (f.sendNotification) {
+      sendPushNotification(
+        `📢 ${title}`,
+        body.substring(0, 100),
+        annId ? `https://generic-generals.netlify.app/#screen=announcements&id=${annId}` : 'https://generic-generals.netlify.app/#screen=announcements',
+      );
+    }
   });
 
-  if (f.sendNotification) {
-    sendPushNotification(`📢 ${title}`, body.substring(0, 100));
+  if (f.sendNotification && false) {
+    // (handled in .then above)
   }
 
   state.createAnnouncementForm = { title: '', body: '', image: null, recipients: 'all', sendNotification: true };
@@ -5033,6 +5051,7 @@ window.amendSession = (id) => {
     sendPushNotification(
       `📅 Training Updated: ${formatDate(ev.date)}`,
       `${ev.time}–${ev.finishTime} at ${ev.location}`,
+      `https://generic-generals.netlify.app/#screen=eventdetail&id=${id}`,
     );
   }
   showToast(notify ? 'Session updated — members notified!' : 'Session updated!');
@@ -5052,6 +5071,7 @@ window.cancelSession = (id) => {
     sendPushNotification(
       `❌ Training Cancelled: ${formatDate(ev.date)}`,
       note || 'This training session has been cancelled.',
+      `https://generic-generals.netlify.app/#screen=eventdetail&id=${id}`,
     );
   }
   showToast(notify ? 'Session cancelled — members notified!' : 'Session cancelled.');
@@ -5561,6 +5581,7 @@ async function pollAll() {
         sendPushNotification(
           `💬 ${threadName}`,
           `${newMsgThread.isGroup ? senderName + ': ' : ''}${newMsgText.substring(0, 80)}`,
+          `https://generic-generals.netlify.app/#screen=chat&id=${newMsgThread.id}`,
         );
       }
       render();
@@ -5577,15 +5598,43 @@ function stopPolling() {
   if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
 }
 
+// ── DEEP LINK HANDLER ─────────────────────────────────────────────────────
+// Reads URL hash params set by push notifications e.g. #screen=eventdetail&id=abc
+function handleDeepLink() {
+  const hash = window.location.hash.slice(1); // remove leading #
+  if (!hash || !state.user) return;
+  const params = Object.fromEntries(new URLSearchParams(hash));
+  const screen = params.screen;
+  const id = params.id;
+  if (!screen) return;
+
+  if (screen === 'eventdetail' && id) {
+    state.activeEventId = id;
+    state.prevScreen = 'events';
+    state.activeTab = 'events';
+    navigate('eventdetail');
+  } else if (screen === 'announcements') {
+    state.activeTab = 'home';
+    navigate('announcements');
+    state.prevScreen = 'home';
+  } else if (screen === 'chat' && id) {
+    openChat(id);
+  }
+  // Clear the hash so it doesn't re-navigate on refresh
+  window.history.replaceState(null, '', window.location.pathname);
+  render();
+}
+
 // ── BOOT ──────────────────────────────────────────────────────────────────
-// Try to restore an existing session, otherwise show splash screen
 (async () => {
-  render(); // show splash immediately
+  render();
   const restored = await tryRestoreSession();
   if (restored) {
     navigate('home');
     state.activeTab = 'home';
     startPolling();
+    // Handle deep link from notification
+    setTimeout(handleDeepLink, 300);
   }
   render();
 })();
