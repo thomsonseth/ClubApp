@@ -2057,7 +2057,7 @@ function handleRSVP(eventId, status, currentStatus, stripeLink) {
 function handleCreateEvent() {
   const f = state.createEventForm;
   if (!f.title || !f.date) { state.error = 'Title and date are required.'; render(); return; }
-  const stripeLink = f.hasCost && f.cost ? f.stripeLink || `https://buy.stripe.com/mock_${Math.random().toString(36).slice(2,9)}` : null;
+  const stripeLink = f.hasCost && f.cost && f.stripeLink ? f.stripeLink : null;
 
   if (state.editingEventId) {
     // ── UPDATE existing event ──
@@ -2749,7 +2749,7 @@ function buildEvents() {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
               Import fixture
              </button>`
-          : `<button class="btn-primary" style="display:flex;align-items:center;justify-content:center;gap:8px;" onclick="navigate('createevent')">
+          : `<button class="btn-primary" style="display:flex;align-items:center;justify-content:center;gap:8px;" onclick="openCreateEvent()">
               <span>${icons.plus}</span> Create event
              </button>`)
           : ''}
@@ -2828,7 +2828,8 @@ function buildEventDetail() {
         ${ev.image ? `<div style="width:100%;height:180px;border-radius:16px;overflow:hidden;"><img src="${ev.image}" style="width:100%;height:100%;object-fit:cover;"/></div>` : ''}
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <span class="event-type-badge">${ev.type}</span>
-          ${isAdmin && ev.type === 'social' ? `<button class="btn-secondary" style="width:auto;padding:6px 16px;font-size:13px;" onclick="openEditEvent('${ev.id}')">Edit Event</button>` : ''}
+          ${isAdmin ? `<button class="btn-secondary" style="width:auto;padding:6px 16px;font-size:13px;" onclick="openEditEvent('${ev.id}')">Edit Event</button>` : ''}
+          ${isAdmin ? `<button class="btn-secondary" style="width:auto;padding:6px 16px;font-size:13px;color:#ff4444;border-color:#ff4444;" onclick="confirmDeleteEvent('${ev.id}')">Delete</button>` : ''}
         </div>
         <div class="event-detail-title">${ev.title}</div>
         <div style="display:flex;flex-direction:column;gap:8px;">
@@ -4042,6 +4043,18 @@ function buildModal() {
       </div>
     </div>`;
   }
+  if (m.type === 'deleteEvent') {
+    const ev = state.events.find(e => e.id === m.eventId);
+    return `<div class="modal-overlay" onclick="closeModal(event)">
+      <div class="modal-sheet">
+        <div class="modal-handle"></div>
+        <div class="modal-title">Delete event?</div>
+        <div class="modal-body">Are you sure you want to delete "<strong>${ev?.title || 'this event'}</strong>"? This cannot be undone.</div>
+        <button class="btn-danger" onclick="doDeleteEvent('${m.eventId}')">Yes, delete event</button>
+        <button class="btn-secondary" onclick="closeModal(null, true)">Cancel</button>
+      </div>
+    </div>`;
+  }
   if (m.type === 'trainingSession') {
     const ev = state.events.find(e => e.id === m.sessionId);
     if (!ev) return '';
@@ -4334,6 +4347,35 @@ window.openEditEvent = (id) => {
   state.error = '';
   navigate('createevent');
   state.prevScreen = 'eventdetail';
+};
+
+window.openCreateEvent = () => {
+  // Always reset form when creating a new event
+  state.editingEventId = null;
+  state.createEventForm = {
+    category: 'social', title: '', date: '', time: '', finishTime: '', location: '',
+    description: '', hasCost: false, cost: '', recipients: 'all',
+    image: null, aiPrompt: '', aiGenerating: false, aiImage: null,
+    stripeLink: null, imageTab: 'upload',
+    notifications: { immediate: false, weekly: false, oneWeekBefore: false, oneDayBefore: false },
+  };
+  state.error = '';
+  navigate('createevent');
+  state.prevScreen = 'events';
+};
+
+window.confirmDeleteEvent = (id) => {
+  state.modal = { type: 'deleteEvent', eventId: id };
+  render();
+};
+
+window.doDeleteEvent = async (id) => {
+  state.events = state.events.filter(e => e.id !== id);
+  await sb.delete('events', { id });
+  state.modal = null;
+  navigate('events');
+  state.activeTab = 'events';
+  render();
 };
 
 window.doCreateEvent = () => {
