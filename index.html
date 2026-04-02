@@ -590,6 +590,9 @@
   .chat-bubble-wrap { display: flex; align-items: flex-end; gap: 6px; margin-bottom: 2px; }
   .chat-bubble-wrap.mine { justify-content: flex-end; }
   .chat-bubble-wrap.theirs { justify-content: flex-start; }
+  .bubble-col { display: flex; flex-direction: column; }
+  .bubble-col-mine { max-width: 85%; align-items: flex-end; }
+  .bubble-col-theirs { max-width: 82%; align-items: flex-start; }
 
   .chat-sender-avatar {
     width: 24px; height: 24px; border-radius: 50%;
@@ -603,14 +606,20 @@
 
   .chat-bubble {
     max-width: 100%;
-    min-width: 48px;
+    min-width: 60px;
     padding: 9px 13px;
     border-radius: 18px;
     font-size: 15px;
     line-height: 1.4;
     word-break: break-word;
     white-space: pre-wrap;
-    display: inline-block;
+  }
+  .chat-bubble-time {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 3px;
+    padding: 0 2px;
+    width: 100%;
   }
   .chat-bubble.theirs {
     background: var(--surface);
@@ -624,16 +633,6 @@
     font-weight: 500;
   }
 
-  .chat-bubble-time {
-    font-size: 11px;
-    color: var(--text-dim);
-    margin-top: 3px;
-    padding: 0 2px;
-    display: block;
-    width: 100%;
-  }
-  .chat-bubble-wrap.mine .chat-bubble-time { text-align: right; }
-  .chat-bubble-wrap.theirs .chat-bubble-time { text-align: left; }
 
   .chat-input-row {
     display: flex;
@@ -3469,13 +3468,13 @@ function buildChat() {
       ${showDate ? `<div class="chat-date-divider">${msgDate}</div>` : ''}
       <div class="chat-bubble-wrap ${isMine ? 'mine' : 'theirs'}" style="position:relative;">
         ${!isMine ? avatarHtml : ''}
-        <div style="display:inline-block; max-width:${isMine ? '85%' : '82%'}; min-width:0;">
+        <div class="bubble-col ${isMine ? 'bubble-col-mine' : 'bubble-col-theirs'}">
           ${senderName}
           <div style="position:relative;">
             ${pickerHtml}
             ${bubbleContent}
           </div>
-          <div style="font-size:11px;color:var(--text-dim);margin-top:3px;padding:0 2px;text-align:${isMine ? 'right' : 'left'};">${formatMsgTimestamp(msg.ts)}</div>
+          <div class="chat-bubble-time" style="text-align:${isMine ? 'right' : 'left'};">${formatMsgTimestamp(msg.ts)}</div>
           ${reactionChips ? `<div class="reaction-bar">${reactionChips}</div>` : ''}
         </div>
       </div>`;
