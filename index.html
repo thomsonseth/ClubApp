@@ -2117,8 +2117,12 @@ function handleCreateEvent() {
       }
     });
 
-    if (newEv.type === 'social' && f.notifications?.immediate) {
-      sendPushNotification(`🎉 New Event: ${newEv.title}`, `${formatDate(newEv.date)} at ${newEv.location}`);
+    if (f.notifications?.immediate) {
+      const emoji = newEv.type === 'social' ? '🎉' : newEv.type === 'match' ? '🏏' : '📅';
+      sendPushNotification(
+        `${emoji} New ${newEv.type.charAt(0).toUpperCase() + newEv.type.slice(1)}: ${newEv.title}`,
+        `${formatDate(newEv.date)}${newEv.time ? ' at ' + formatTime(newEv.time) : ''}${newEv.location ? ' · ' + newEv.location : ''}`,
+      );
     }
 
     state.createEventForm = {
@@ -2648,11 +2652,15 @@ function buildEventCard(ev, isAdmin) {
     ? `<div class="bat-icon" style="width:36px;height:36px;border-radius:8px;background:var(--surface2);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--accent);">${icons.cricketBat}</div>`
     : (ev.image ? `<div style="width:64px;height:64px;border-radius:10px;overflow:hidden;flex-shrink:0;align-self:flex-start;"><img src="${ev.image}" style="width:100%;height:100%;object-fit:cover;"/></div>` : '');
 
+  const paidAndGoing = ev.cost > 0 && myRsvp === 'going';
   const rsvpSection = ev.type === 'social' ? `
     <div class="rsvp-row" onclick="event.stopPropagation()">
-      <button class="rsvp-btn ${myRsvp==='going'?'going':''}" onclick="event.stopPropagation(); doRSVP('${ev.id}','going')">${ev.cost > 0 && myRsvp !== 'going' ? '✓ Going 💳' : '✓ Going'}</button>
-      <button class="rsvp-btn ${myRsvp==='notgoing'?'notgoing':''}" onclick="event.stopPropagation(); doRSVP('${ev.id}','notgoing')">✗ No</button>
-      <button class="rsvp-btn ${myRsvp==='maybe'?'maybe':''}" onclick="event.stopPropagation(); doRSVP('${ev.id}','maybe')">? Maybe</button>
+      ${paidAndGoing
+        ? `<div style="color:var(--green);font-size:13px;font-weight:600;padding:6px 0;">✓ Going — payment confirmed</div>`
+        : `<button class="rsvp-btn ${myRsvp==='going'?'going':''}" onclick="event.stopPropagation(); doRSVP('${ev.id}','going')">${ev.cost > 0 ? '✓ Going 💳' : '✓ Going'}</button>
+           <button class="rsvp-btn ${myRsvp==='notgoing'?'notgoing':''}" onclick="event.stopPropagation(); doRSVP('${ev.id}','notgoing')">✗ No</button>
+           <button class="rsvp-btn ${myRsvp==='maybe'?'maybe':''}" onclick="event.stopPropagation(); doRSVP('${ev.id}','maybe')">? Maybe</button>`
+      }
     </div>
     <div style="font-size:12px;color:var(--text-dim);">
       ${Object.values(ev.rsvp||{}).filter(v=>v==='going').length} Yes &nbsp;·&nbsp;
@@ -2779,16 +2787,20 @@ function buildEventDetail() {
   const rsvpSection = ev.type === 'social' ? `
     <div>
       <div class="section-title" style="font-size:16px;">Your RSVP</div>
-      <div class="rsvp-row">
-        <button class="rsvp-btn ${myRsvp==='going'?'going':''}" onclick="doRSVP('${ev.id}','going')">
-          ${ev.cost > 0 && myRsvp !== 'going' ? '✓ Going 💳' : '✓ Going'}
-        </button>
-        <button class="rsvp-btn ${myRsvp==='notgoing'?'notgoing':''}" onclick="doRSVP('${ev.id}','notgoing')">✗ Not going</button>
-        <button class="rsvp-btn ${myRsvp==='maybe'?'maybe':''}" onclick="doRSVP('${ev.id}','maybe')">? Maybe</button>
-      </div>
-      ${myRsvp === 'going' ? `<div style="color:var(--green);font-size:14px;margin-top:8px;font-weight:600;">✓ You're going!</div>` : ''}
-      ${myRsvp === 'notgoing' ? `<div style="color:var(--red);font-size:14px;margin-top:8px;font-weight:600;">✗ Not going</div>` : ''}
-      ${myRsvp === 'maybe' ? `<div style="color:var(--orange);font-size:14px;margin-top:8px;font-weight:600;">? Maybe attending</div>` : ''}
+      ${ev.cost > 0 && myRsvp === 'going'
+        ? `<div style="color:var(--green);font-size:15px;font-weight:600;padding:10px 0;">✓ You're going — payment confirmed</div>
+           <div style="font-size:13px;color:var(--text-dim);">Your RSVP is locked as you've already paid for this event.</div>`
+        : `<div class="rsvp-row">
+             <button class="rsvp-btn ${myRsvp==='going'?'going':''}" onclick="doRSVP('${ev.id}','going')">
+               ${ev.cost > 0 ? '✓ Going 💳' : '✓ Going'}
+             </button>
+             <button class="rsvp-btn ${myRsvp==='notgoing'?'notgoing':''}" onclick="doRSVP('${ev.id}','notgoing')">✗ Not going</button>
+             <button class="rsvp-btn ${myRsvp==='maybe'?'maybe':''}" onclick="doRSVP('${ev.id}','maybe')">? Maybe</button>
+           </div>
+           ${myRsvp === 'going' ? `<div style="color:var(--green);font-size:14px;margin-top:8px;font-weight:600;">✓ You're going!</div>` : ''}
+           ${myRsvp === 'notgoing' ? `<div style="color:var(--red);font-size:14px;margin-top:8px;font-weight:600;">✗ Not going</div>` : ''}
+           ${myRsvp === 'maybe' ? `<div style="color:var(--orange);font-size:14px;margin-top:8px;font-weight:600;">? Maybe attending</div>` : ''}`
+      }
     </div>` : '';
 
   const rsvpSummary = isAdmin && ev.type === 'social' ? `
@@ -5389,11 +5401,84 @@ async function sendPushNotification(title, message, url = '/') {
 // ── REAL-TIME MESSAGE POLLING ─────────────────────────────────────────────
 // Poll Supabase every 5 seconds for new messages while logged in
 let _pollInterval = null;
+let _lastEventPoll = 0;
+let _lastAnnPoll = 0;
 
-async function pollMessages() {
+async function pollAll() {
   if (!state.user || !sb._token) return;
+
+  const now = Date.now();
+
+  // ── Poll events every 10s ─────────────────────────────────────────────
+  if (now - _lastEventPoll > 10000) {
+    _lastEventPoll = now;
+    try {
+      const evRows = await sb.select('events', 'order=date.asc');
+      if (Array.isArray(evRows)) {
+        const existingIds = new Set(state.events.map(e => e.id));
+        let changed = false;
+
+        evRows.forEach(r => {
+          const mapped = rowToEvent(r);
+          if (!existingIds.has(r.id)) {
+            // New event — add it
+            state.events.push(mapped);
+            changed = true;
+          } else {
+            // Existing event — check for changes
+            const local = state.events.find(e => e.id === r.id);
+            if (local) {
+              const fields = ['title','date','time','finishTime','location','description','cost','cancelled','cancelNote'];
+              fields.forEach(f => {
+                if (local[f] !== mapped[f]) { local[f] = mapped[f]; changed = true; }
+              });
+            }
+          }
+        });
+
+        // Refresh RSVPs
+        const rsvps = await sb.select('rsvps', '');
+        if (Array.isArray(rsvps)) {
+          state.events.forEach(e => e.rsvp = {});
+          rsvps.forEach(r => {
+            const ev = state.events.find(e => e.id === r.event_id);
+            if (ev) ev.rsvp[r.user_id] = r.status;
+          });
+          changed = true;
+        }
+
+        if (changed) render();
+      }
+    } catch(e) { console.log('Event poll error:', e); }
+  }
+
+  // ── Poll announcements every 15s ──────────────────────────────────────
+  if (now - _lastAnnPoll > 15000) {
+    _lastAnnPoll = now;
+    try {
+      const annRows = await sb.select('announcements', 'order=created_at.desc');
+      if (Array.isArray(annRows)) {
+        const existingIds = new Set(state.announcements.map(a => a.id));
+        let changed = false;
+        annRows.forEach(a => {
+          if (!existingIds.has(a.id)) {
+            state.announcements.unshift({
+              id: a.id, title: a.title, body: a.body,
+              image: a.image_url || null,
+              date: a.created_at ? a.created_at.slice(0,10) : '',
+              author: a.author_name || 'Admin',
+              recipients: a.recipients || 'all',
+            });
+            changed = true;
+          }
+        });
+        if (changed) render();
+      }
+    } catch(e) { console.log('Announcement poll error:', e); }
+  }
+
+  // ── Poll messages every 5s ────────────────────────────────────────────
   try {
-    // Fetch all threads the current user is in
     const threads = await sb.select('threads', 'order=created_at.asc');
     if (!Array.isArray(threads)) return;
 
@@ -5416,57 +5501,46 @@ async function pollMessages() {
       let existing = state.messages.find(m => m.id === t.id);
 
       if (!existing) {
-        // Brand new thread — add it
         existing = {
-          id: t.id,
-          isGroup: t.is_group,
-          name: t.name || null,
-          participants: t.participants || [],
-          messages: [],
+          id: t.id, isGroup: t.is_group, name: t.name || null,
+          participants: t.participants || [], messages: [],
           unread: Object.fromEntries((t.participants || []).map(p => [p, 0])),
         };
         state.messages.unshift(existing);
       }
 
       const existingIds = new Set(existing.messages.map(m => m.id));
-      let addedNew = false;
       threadMsgs.forEach(m => {
-        if (existingIds.has(m.id)) return; // already have this message
-        existingIds.add(m.id); // prevent duplicates within same poll
+        if (existingIds.has(m.id)) return;
+        existingIds.add(m.id);
         const newMsg = {
-            id: m.id,
-            from: m.is_system ? 'system' : m.from_id,
-            text: m.text || '',
-            image: m.image_url || null,
-            system: m.is_system || false,
-            reactions: m.reactions || {},
-            ts: new Date(m.created_at).getTime(),
-          };
-          existing.messages.push(newMsg);
+          id: m.id,
+          from: m.is_system ? 'system' : m.from_id,
+          text: m.text || '',
+          image: m.image_url || null,
+          system: m.is_system || false,
+          reactions: m.reactions || {},
+          ts: new Date(m.created_at).getTime(),
+        };
+        existing.messages.push(newMsg);
 
-          // Only count as unread if sent by someone else
-          if (m.from_id !== state.user.id) {
-            existing.unread[state.user.id] = (existing.unread[state.user.id] || 0) + 1;
-            gotNew = true;
-
-            // For push notification — capture the sender and message
-            if (!newMsgFrom) {
-              newMsgFrom = m.from_id;
-              newMsgText = m.text || '';
-              newMsgThread = existing;
-            }
+        if (m.from_id !== state.user.id) {
+          existing.unread[state.user.id] = (existing.unread[state.user.id] || 0) + 1;
+          gotNew = true;
+          if (!newMsgFrom) {
+            newMsgFrom = m.from_id;
+            newMsgText = m.text || '';
+            newMsgThread = existing;
           }
+        }
       });
     });
 
     if (gotNew) {
-      // Send push notification for new messages (1:1 and group)
       if (newMsgFrom && newMsgThread) {
         const sender = state.users.find(u => u.id === newMsgFrom);
         const senderName = sender ? (sender.nickname || sender.firstName) : 'Someone';
-        const threadName = newMsgThread.isGroup
-          ? (newMsgThread.name || 'Group Chat')
-          : senderName;
+        const threadName = newMsgThread.isGroup ? (newMsgThread.name || 'Group Chat') : senderName;
         sendPushNotification(
           `💬 ${threadName}`,
           `${newMsgThread.isGroup ? senderName + ': ' : ''}${newMsgText.substring(0, 80)}`,
@@ -5474,14 +5548,12 @@ async function pollMessages() {
       }
       render();
     }
-  } catch(e) {
-    console.log('Poll error:', e);
-  }
+  } catch(e) { console.log('Message poll error:', e); }
 }
 
 function startPolling() {
   if (_pollInterval) clearInterval(_pollInterval);
-  _pollInterval = setInterval(pollMessages, 5000);
+  _pollInterval = setInterval(pollAll, 5000);
 }
 
 function stopPolling() {
