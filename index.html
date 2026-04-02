@@ -2034,6 +2034,12 @@ function handleRSVP(eventId, status, currentStatus, stripeLink) {
   const ev = state.events.find(e => e.id === eventId);
   if (!ev || !state.user) return;
 
+  // Lock RSVP if paid event and already going
+  if (ev.cost > 0 && currentStatus === 'going' && status !== 'going') {
+    showToast('Your RSVP is locked — you have already paid for this event.');
+    return;
+  }
+
   if (status === 'going' && currentStatus !== 'going' && ev.cost > 0) {
     if (stripeLink && stripeLink.startsWith('http') && !stripeLink.includes('mock')) {
       window.open(stripeLink, '_blank');
@@ -2075,6 +2081,14 @@ function handleCreateEvent() {
       ev.notifications = { ...f.notifications };
       // Persist to Supabase
       sb.update('events', eventToRow(ev), { id: ev.id });
+      // Send notification if immediate ticked
+      if (f.notifications?.immediate) {
+        const emoji = ev.type === 'social' ? '🎉' : ev.type === 'match' ? '🏏' : '📅';
+        sendPushNotification(
+          `${emoji} Event Updated: ${ev.title}`,
+          `${formatDate(ev.date)}${ev.time ? ' at ' + formatTime(ev.time) : ''}${ev.location ? ' · ' + ev.location : ''}`,
+        );
+      }
     }
     const editedId = state.editingEventId;
     state.editingEventId = null;
@@ -2484,9 +2498,12 @@ function buildHome() {
       ${nextSocial.image ? `<div style="width:68px;height:68px;border-radius:10px;overflow:hidden;flex-shrink:0;"><img src="${nextSocial.image}" style="width:100%;height:100%;object-fit:cover;"/></div>` : ''}
     </div>
     <div class="rsvp-row" onclick="event.stopPropagation()">
-      <button class="rsvp-btn ${myRsvpSocial==='going'?'going':''}" onclick="event.stopPropagation(); doRSVP('${nextSocial.id}','going')">${nextSocial.cost > 0 && myRsvpSocial !== 'going' ? '✓ Going 💳' : '✓ Going'}</button>
-      <button class="rsvp-btn ${myRsvpSocial==='notgoing'?'notgoing':''}" onclick="event.stopPropagation(); doRSVP('${nextSocial.id}','notgoing')">✗ No</button>
-      <button class="rsvp-btn ${myRsvpSocial==='maybe'?'maybe':''}" onclick="event.stopPropagation(); doRSVP('${nextSocial.id}','maybe')">? Maybe</button>
+      ${nextSocial.cost > 0 && myRsvpSocial === 'going'
+        ? `<div style="color:var(--green);font-size:13px;font-weight:600;padding:6px 0;">✓ Going — payment confirmed</div>`
+        : `<button class="rsvp-btn ${myRsvpSocial==='going'?'going':''}" onclick="event.stopPropagation(); doRSVP('${nextSocial.id}','going')">${nextSocial.cost > 0 ? '✓ Going 💳' : '✓ Going'}</button>
+           <button class="rsvp-btn ${myRsvpSocial==='notgoing'?'notgoing':''}" onclick="event.stopPropagation(); doRSVP('${nextSocial.id}','notgoing')">✗ No</button>
+           <button class="rsvp-btn ${myRsvpSocial==='maybe'?'maybe':''}" onclick="event.stopPropagation(); doRSVP('${nextSocial.id}','maybe')">? Maybe</button>`
+      }
     </div>
     ${myRsvpSocial === 'going'    ? `<div style="color:var(--green);font-size:13px;font-weight:600;">✓ You're going!</div>` : ''}
     ${myRsvpSocial === 'notgoing' ? `<div style="color:var(--red);font-size:13px;font-weight:600;">✗ Not going</div>` : ''}
@@ -5367,7 +5384,7 @@ window.importConfirm = () => {
 // ── PUSH NOTIFICATIONS (OneSignal via Cloudflare Worker) ─────────────────
 // Replace the URL below with your deployed onesignal-worker URL after setup.
 // The Worker holds your API keys securely and avoids CORS issues.
-const ONESIGNAL_WORKER_URL = 'https://onesignal-proxy.YOUR_SUBDOMAIN.workers.dev';
+const ONESIGNAL_WORKER_URL = 'https://onesignal-proxy.thomsonseth.workers.dev';
 
 // Request permission from the user after they log in
 async function requestNotificationPermission() {
@@ -5381,7 +5398,7 @@ async function requestNotificationPermission() {
 }
 
 async function sendPushNotification(title, message, url = '/') {
-  if (!ONESIGNAL_WORKER_URL || ONESIGNAL_WORKER_URL.includes('YOUR_SUBDOMAIN')) return;
+  if (!ONESIGNAL_WORKER_URL) return;
   try {
     await fetch(ONESIGNAL_WORKER_URL, {
       method: 'POST',
