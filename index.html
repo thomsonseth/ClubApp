@@ -1774,7 +1774,13 @@ async function handleLogin() {
   state.activeTab = 'home';
   state.loading = false;
   render();
-  setTimeout(requestNotificationPermission, 2000);
+  setTimeout(() => {
+    requestNotificationPermission();
+    // Link this device to the user's ID for targeted notifications
+    if (window.OneSignal) {
+      window.OneSignal.login(state.user.id).catch(() => {});
+    }
+  }, 2000);
   startPolling();
 }
 
@@ -1866,10 +1872,11 @@ async function handleJoin() {
   navigate('home');
   state.activeTab = 'home';
   startPolling();
+  if (window.OneSignal) window.OneSignal.login(state.user.id).catch(() => {});
   render();
 }
-async function confirmLogout() {
   stopPolling();
+  if (window.OneSignal) window.OneSignal.logout().catch(() => {});
   await sb.auth_signOut();
   state.user = null;
   state.users = [];
@@ -2157,8 +2164,9 @@ function sendChatMessage() {
   const thread = state.messages.find(m => m.id === state.activeChatId);
   if (thread && state.user) {
     const text = state.chatInput.trim();
+    const tempId = 'temp_' + Date.now();
     const newMsg = {
-      id: 'msg' + Date.now(),
+      id: tempId,
       from: state.user.id,
       text,
       ts: Date.now(),
@@ -2167,20 +2175,33 @@ function sendChatMessage() {
     thread.participants.forEach(pid => {
       if (pid !== state.user.id) thread.unread[pid] = (thread.unread[pid] || 0) + 1;
     });
-    // Persist to Supabase
+
+    // Persist to Supabase — replace temp ID with real UUID when returned
     sb.insert('messages', {
       thread_id: thread.id,
       from_id: state.user.id,
       text,
       is_system: false,
+    }).then(rows => {
+      if (Array.isArray(rows) && rows[0]?.id) {
+        // Replace temp ID with real Supabase UUID so poller won't duplicate it
+        const local = thread.messages.find(m => m.id === tempId);
+        if (local) local.id = rows[0].id;
+      }
     });
-    if (thread.isGroup) {
-      sendPushNotification(
-        `Message from ${state.user.nickname || state.user.firstName}`,
+
+    // Notify recipients only (exclude sender) via OneSignal external_user_id filter
+    const senderName = state.user.nickname || state.user.firstName;
+    const recipients = thread.participants.filter(pid => pid !== state.user.id);
+    if (recipients.length > 0) {
+      sendPushNotificationToUsers(
+        `Message from ${senderName}`,
         text.substring(0, 200),
         `https://generic-generals.netlify.app/#screen=chat&id=${thread.id}`,
+        recipients,
       );
     }
+
     state.chatInput = '';
     render();
     setTimeout(() => {
@@ -5430,6 +5451,26 @@ async function sendPushNotification(title, message, url = '/') {
     });
   } catch(e) {
     console.log('Push notification failed:', e);
+  }
+}
+
+// Send push notification to specific users only (by Supabase user ID = OneSignal external_user_id)
+async function sendPushNotificationToUsers(title, message, url, userIds) {
+  if (!ONESIGNAL_WORKER_URL || !userIds?.length) return;
+  try {
+    await fetch(ONESIGNAL_WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        include_aliases: { external_id: userIds },
+        target_channel: 'push',
+        headings: { en: title },
+        contents: { en: message.substring(0, 200) },
+        url,
+      }),
+    });
+  } catch(e) {
+    console.log('Targeted push notification failed:', e);
   }
 }
 
