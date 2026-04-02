@@ -4309,11 +4309,7 @@ window.toggleEventCost = () => {
 };
 
 window.generateStripeLink = () => {
-  const cost = state.createEventForm.cost;
-  if (!cost || parseFloat(cost) <= 0) { showToast('Please enter a cost amount first.'); return; }
-  const slug = (state.createEventForm.title || 'event').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-  state.createEventForm.stripeLink = `https://buy.stripe.com/mock_${slug}_${Math.random().toString(36).slice(2,8)}`;
-  render();
+  showToast('Paste your Stripe Payment Link in the field below.');
 };
 
 window.toggleNotif = (key) => {
