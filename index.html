@@ -8,7 +8,7 @@
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
-    background: #111318;
+    background: #0d0d0d;
     min-height: 100vh;
     display: flex;
     align-items: center;
@@ -16,7 +16,7 @@
     font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
   }
 
-  /* Phone frame */
+  /* Phone frame — desktop preview only */
   #phone-frame {
     width: 390px;
     height: 844px;
@@ -29,7 +29,7 @@
     flex-direction: column;
   }
 
-  /* Notch */
+  /* Notch — desktop only */
   #phone-frame::before {
     content: '';
     position: absolute;
@@ -38,6 +38,25 @@
     background: #000;
     border-radius: 0 0 18px 18px;
     z-index: 100;
+  }
+
+  /* On a real mobile device — go full screen, no frame */
+  @media (max-width: 500px) {
+    body {
+      background: #0d0d0d;
+      align-items: stretch;
+      justify-content: stretch;
+    }
+    #phone-frame {
+      width: 100vw;
+      height: 100vh;
+      height: 100dvh;
+      border-radius: 0;
+      box-shadow: none;
+    }
+    #phone-frame::before {
+      display: none;
+    }
   }
 
   #app {
@@ -1390,6 +1409,7 @@ function persistClubConfig() {
 // ── STATE ──────────────────────────────────────────────────────────────
 const state = {
   screen: 'splash',          // current screen
+  pendingSignup: null,        // set when email confirmation required
   prevScreen: null,
   user: null,                // logged in user
   toggles: { social: true, announcements: true, teamSelection: true, training: true },
@@ -1754,7 +1774,17 @@ async function handleLogin() {
 
   const data = await sb.auth_signIn(email, password);
   if (data.error || !data.access_token) {
-    state.error = 'Invalid email or password.';
+    // Surface the real Supabase error so we know what's happening
+    const msg = data.error?.message || '';
+    if (msg.toLowerCase().includes('email') && msg.toLowerCase().includes('confirm')) {
+      state.error = 'Please check your email and click the confirmation link before logging in.';
+    } else if (msg.toLowerCase().includes('invalid')) {
+      state.error = 'Invalid email or password. Please try again.';
+    } else if (msg) {
+      state.error = msg;
+    } else {
+      state.error = 'Login failed. Please check your credentials and try again.';
+    }
     state.loading = false; render(); return;
   }
 
@@ -1800,6 +1830,28 @@ async function handleSignup() {
   if (data.error) {
     state.error = data.error.message || 'Sign up failed.';
     state.loading = false; render(); return;
+  }
+
+  // Check if email confirmation is required (no access_token returned)
+  if (!data.access_token && data.user?.identities?.length === 0) {
+    // Email already registered
+    state.error = 'An account with this email already exists. Please log in instead.';
+    state.loading = false; render(); return;
+  }
+
+  if (!data.access_token && data.user) {
+    // Supabase requires email confirmation — show message
+    state.loading = false;
+    state.error = '';
+    state.screen = 'emailconfirm';
+    state.pendingSignup = {
+      firstName: f.firstName,
+      lastName: f.lastName,
+      email: f.email,
+      mobile: f.mobile || '',
+      userId: data.user.id,
+    };
+    render(); return;
   }
 
   sb._token = data.access_token || SUPABASE_ANON;
@@ -2298,6 +2350,7 @@ function buildScreen() {
   if (s === 'signup') return buildSignup();
   if (s === 'joinclub') return buildJoinClub();
   if (s === 'forgotpassword') return buildForgotPassword();
+  if (s === 'emailconfirm') return buildEmailConfirm();
 
   // Screens with bottom nav
   const mainContent = (() => {
@@ -2452,6 +2505,32 @@ function buildForgotPassword() {
         <div id="reset-confirm" style="display:none;text-align:center;color:var(--teal);font-size:15px;padding:16px;background:rgba(78,205,196,0.1);border-radius:12px;">
           ✓ Check your email for a link to continue.
         </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── EMAIL CONFIRMATION SCREEN ─────────────────────────────────────────────
+function buildEmailConfirm() {
+  const email = state.pendingSignup?.email || '';
+  return `<div class="screen">
+    <div style="padding-top:36px;display:flex;align-items:center;justify-content:center;">${buildLogo(66)}</div>
+    <div class="screen-scroll">
+      <div class="auth-screen">
+        <div>
+          <div class="auth-heading">Check your email</div>
+          <div class="auth-subheading">We sent a confirmation link to <strong style="color:var(--accent)">${email}</strong></div>
+        </div>
+        <div style="background:var(--surface);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:12px;">
+          <div style="font-size:15px;color:var(--text);line-height:1.6;">
+            1. Open the email from Supabase<br/>
+            2. Click the confirmation link<br/>
+            3. Come back here and tap below
+          </div>
+        </div>
+        <button class="btn-primary" onclick="completeSignupAfterConfirm()">I've confirmed my email &#x2192;</button>
+        <div class="auth-link" onclick="navigate('signup')">&#x2190; Back to sign up</div>
+        ${state.error ? `<div class="error-msg">${state.error}</div>` : ''}
       </div>
     </div>
   </div>`;
@@ -4206,6 +4285,54 @@ window.doSignup = () => {
   state.signupForm.password = document.getElementById('su-pw')?.value || '';
   state.signupForm.confirm = document.getElementById('su-cpw')?.value || '';
   handleSignup();
+};
+
+window.completeSignupAfterConfirm = async () => {
+  const p = state.pendingSignup;
+  if (!p) { navigate('signup'); return; }
+  state.loading = true; state.error = ''; render();
+
+  // Try to sign in — will work once email is confirmed
+  const data = await sb.auth_signIn(p.email, state.signupForm.password);
+  if (data.error || !data.access_token) {
+    state.error = 'Email not confirmed yet — please click the link in your email first.';
+    state.loading = false; render(); return;
+  }
+
+  sb._token = data.access_token;
+  saveSession({ access_token: data.access_token, user_id: data.user?.id });
+
+  // Create profile if it doesn't exist yet
+  const existing = await sb.select('profiles', `id=eq.${p.userId}`);
+  if (!Array.isArray(existing) || existing.length === 0) {
+    await sb.insert('profiles', {
+      id: p.userId,
+      first_name: p.firstName,
+      last_name: p.lastName,
+      email: p.email,
+      mobile: p.mobile || '',
+      nickname: '',
+      role: 'Player',
+      avatar_url: null,
+    });
+  }
+
+  state.user = {
+    id: p.userId,
+    email: p.email,
+    firstName: p.firstName,
+    lastName: p.lastName,
+    nickname: '',
+    mobile: p.mobile || '',
+    role: 'Player',
+    avatar: null,
+  };
+
+  state.pendingSignup = null;
+  await loadAppData();
+  state.loading = false;
+  navigate('joinclub');
+  render();
 };
 
 window.doJoin = () => {
