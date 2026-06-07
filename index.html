@@ -6,6 +6,8 @@
 <title>ClubApp – Laurimar Power Cricket Club</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { overflow-x: hidden; max-width: 100%; }
+  input, textarea, select, button { max-width: 100%; }
 
   body {
     background: #0d0d0d;
@@ -64,6 +66,7 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    max-width: 100%;
     background: #000;
     position: relative;
   }
@@ -99,6 +102,7 @@
   .screen-scroll {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
   }
 
@@ -1770,9 +1774,16 @@ async function persistProfiles() {
 async function handleLogin() {
   const { email, password } = state.loginForm;
   if (!email || !password) { state.error = 'Please enter your email and password.'; render(); return; }
-  state.loading = true; render();
+  state.loading = true; state.error = ''; render();
 
-  const data = await sb.auth_signIn(email, password);
+  let data;
+  try {
+    data = await sb.auth_signIn(email, password);
+  } catch (err) {
+    state.error = 'Network error — please check your connection and try again.';
+    state.loading = false; render(); return;
+  }
+  console.log('Login response:', JSON.stringify(data).substring(0, 200));
   if (data.error || !data.access_token) {
     // Surface the real Supabase error so we know what's happening
     const msg = data.error?.message || '';
@@ -4274,7 +4285,16 @@ window.setTab = setTab;
 window.doLogin = () => {
   state.loginForm.email = document.getElementById('login-email')?.value || '';
   state.loginForm.password = document.getElementById('login-password')?.value || '';
-  handleLogin();
+  if (!state.loginForm.email || !state.loginForm.password) {
+    state.error = 'Please enter your email and password.';
+    render(); return;
+  }
+  handleLogin().catch(err => {
+    state.error = 'An unexpected error occurred. Please try again.';
+    state.loading = false;
+    render();
+    console.error('Login error:', err);
+  });
 };
 
 window.doSignup = () => {
