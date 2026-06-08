@@ -2802,18 +2802,6 @@ function buildHome() {
             </div>
             <div class="view-all" onclick="window.open('https://www.instagram.com/laurimarcc/','_blank')">View profile</div>
           </div>
-        <div>
-          <div class="section-header">
-            <div class="section-title" style="margin-bottom:0">Latest Announcements</div>
-            <div class="view-all" onclick="navigate('announcements')">View all</div>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px;">
-            ${annCards || '<div class="empty-state">No announcements yet</div>'}
-          </div>
-        </div>
-        ${isAdmin ? `<button class="btn-primary" style="display:flex;align-items:center;justify-content:center;gap:8px;" onclick="navigate('createannouncement')">
-          <span>${icons.plus}</span> Create announcement
-        </button>` : ''}
           <div class="instagram-feed" style="margin-top:10px;">
             ${state.instagramPosts.length === 0
               ? `<div class="empty-state">Loading Instagram posts...</div>`
@@ -2835,6 +2823,18 @@ function buildHome() {
             }
           </div>
         </div>
+        <div>
+          <div class="section-header">
+            <div class="section-title" style="margin-bottom:0">Latest Announcements</div>
+            <div class="view-all" onclick="navigate('announcements')">View all</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px;">
+            ${annCards || '<div class="empty-state">No announcements yet</div>'}
+          </div>
+        </div>
+        ${isAdmin ? `<button class="btn-primary" style="display:flex;align-items:center;justify-content:center;gap:8px;" onclick="navigate('createannouncement')">
+          <span>${icons.plus}</span> Create announcement
+        </button>` : ''}
       </div>
     </div>
   </div>`;
