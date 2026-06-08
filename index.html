@@ -1874,11 +1874,16 @@ async function fetchInstagramFeed() {
       const linkEl = item.querySelector('link');
       const link = linkEl ? (linkEl.textContent || linkEl.nextSibling?.nodeValue || '').trim() : '';
 
+      // Route image through our CORS proxy so Instagram CDN doesn't block it
+      const proxiedImage = image
+        ? RSS_PROXY_URL + '/image?url=' + encodeURIComponent(image)
+        : null;
+
       return {
         title:   item.querySelector('title')?.textContent?.trim() || '',
         link,
         date:    item.querySelector('pubDate')?.textContent?.trim() || '',
-        image,
+        image:   proxiedImage,
         caption,
       };
     });
