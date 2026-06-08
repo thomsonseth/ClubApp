@@ -1837,27 +1837,52 @@ async function fetchInstagramFeed() {
     const doc = parser.parseFromString(xml, 'application/xml');
     const items = Array.from(doc.querySelectorAll('item'));
     state.instagramPosts = items.slice(0, 5).map(item => {
-      // Extract image from media:content or description img tag
-      const mediaContent = item.querySelector('content');
-      let image = mediaContent ? mediaContent.getAttribute('url') : null;
+      // Try every possible image source in order of preference
+      let image = null;
+
+      // 1. media:content url attribute (namespaced — try both ways)
+      const mediaNS = item.getElementsByTagNameNS('http://search.yahoo.com/mrss/', 'content');
+      if (mediaNS.length > 0) image = mediaNS[0].getAttribute('url');
+
+      // 2. Fallback: any element named 'content' with a url attr
       if (!image) {
-        const desc = item.querySelector('description')?.textContent || '';
-        const imgMatch = desc.match(/src="([^"]+)"/);
+        const contentEl = item.querySelector('content');
+        if (contentEl) image = contentEl.getAttribute('url');
+      }
+
+      // 3. Fallback: parse img src from description HTML
+      if (!image) {
+        const rawDesc = item.querySelector('description')?.textContent || '';
+        const imgMatch = rawDesc.match(/src="(https:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/i);
         if (imgMatch) image = imgMatch[1];
       }
-      // Strip HTML from description to get caption
+
+      // 4. Fallback: any URL in description that looks like an image
+      if (!image) {
+        const rawDesc = item.querySelector('description')?.textContent || '';
+        const urlMatch = rawDesc.match(/(https:\/\/[^\s"'<>]+\.(?:jpg|jpeg|png|webp)(?:\?[^\s"'<>]*)?)/i);
+        if (urlMatch) image = urlMatch[1];
+      }
+
+      // Strip HTML from description to get caption text
       const rawDesc = item.querySelector('description')?.textContent || '';
       const div = document.createElement('div');
       div.innerHTML = rawDesc;
-      const caption = div.textContent?.trim() || '';
+      const caption = (div.textContent || div.innerText || '').trim();
+
+      // Get link — RSS <link> is text content between tags
+      const linkEl = item.querySelector('link');
+      const link = linkEl ? (linkEl.textContent || linkEl.nextSibling?.nodeValue || '').trim() : '';
+
       return {
-        title: item.querySelector('title')?.textContent?.trim() || '',
-        link:  item.querySelector('link')?.textContent?.trim() || '',
-        date:  item.querySelector('pubDate')?.textContent?.trim() || '',
+        title:   item.querySelector('title')?.textContent?.trim() || '',
+        link,
+        date:    item.querySelector('pubDate')?.textContent?.trim() || '',
         image,
         caption,
       };
     });
+    console.log('Instagram posts loaded:', state.instagramPosts.length, state.instagramPosts.map(p => ({title: p.title, hasImage: !!p.image})));
   } catch(e) {
     console.log('Instagram feed error:', e);
   }
@@ -2769,6 +2794,16 @@ function buildHome() {
         </div>
         <div>
           <div class="section-header">
+            <div class="section-title" style="margin-bottom:0">
+              <span style="display:flex;align-items:center;gap:6px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.5" fill="var(--accent)" stroke="none"/></svg>
+                @laurimarcc
+              </span>
+            </div>
+            <div class="view-all" onclick="window.open('https://www.instagram.com/laurimarcc/','_blank')">View profile</div>
+          </div>
+        <div>
+          <div class="section-header">
             <div class="section-title" style="margin-bottom:0">Latest Announcements</div>
             <div class="view-all" onclick="navigate('announcements')">View all</div>
           </div>
@@ -2779,16 +2814,6 @@ function buildHome() {
         ${isAdmin ? `<button class="btn-primary" style="display:flex;align-items:center;justify-content:center;gap:8px;" onclick="navigate('createannouncement')">
           <span>${icons.plus}</span> Create announcement
         </button>` : ''}
-        <div>
-          <div class="section-header">
-            <div class="section-title" style="margin-bottom:0">
-              <span style="display:flex;align-items:center;gap:6px;">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.5" fill="var(--accent)" stroke="none"/></svg>
-                @laurimarcc
-              </span>
-            </div>
-            <div class="view-all" onclick="window.open('https://www.instagram.com/laurimarcc/','_blank')">View profile</div>
-          </div>
           <div class="instagram-feed" style="margin-top:10px;">
             ${state.instagramPosts.length === 0
               ? `<div class="empty-state">Loading Instagram posts...</div>`
@@ -2801,7 +2826,7 @@ function buildHome() {
                     <div class="insta-footer">
                       <div class="insta-date">${p.date ? new Date(p.date).toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) : ''}</div>
                       <div class="insta-handle">
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z"/></svg>
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor" stroke="none"/></svg>
                         View on Instagram
                       </div>
                     </div>
