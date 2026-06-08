@@ -1606,6 +1606,15 @@ const sb = {
     return r.json();
   },
 
+  async auth_refreshToken(refreshToken) {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_ANON, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+    return r.json();
+  },
+
   async auth_signOut() {
     await fetch(`${SUPABASE_URL}/auth/v1/logout`, {
       method: 'POST',
@@ -1663,6 +1672,15 @@ const sb = {
 // ── Session persistence ───────────────────────────────────────────────────
 function saveSession(session) {
   try { localStorage.setItem('clubapp_session', JSON.stringify(session)); } catch(e) {}
+}
+function saveSessionFull(data) {
+  // Save both access and refresh token
+  saveSession({
+    access_token:  data.access_token,
+    refresh_token: data.refresh_token,
+    user_id:       data.user?.id,
+    expires_at:    Date.now() + ((data.expires_in || 3600) * 1000),
+  });
 }
 
 function loadSession() {
@@ -1965,7 +1983,7 @@ async function handleLogin() {
   }
 
   sb._token = data.access_token;
-  saveSession({ access_token: data.access_token, user_id: data.user?.id });
+  saveSessionFull(data);
 
   // Load profile
   const profiles = await sb.select('profiles', `id=eq.${data.user.id}`);
@@ -2032,7 +2050,7 @@ async function handleSignup() {
 
   sb._token = data.access_token || SUPABASE_ANON;
   if (data.access_token) {
-    saveSession({ access_token: data.access_token, user_id: data.user?.id });
+    saveSessionFull(data);
   }
 
   // Create profile row
@@ -2133,7 +2151,31 @@ async function confirmDeleteProfile() {
 async function tryRestoreSession() {
   const session = loadSession();
   if (!session?.access_token) return false;
-  sb._token = session.access_token;
+
+  // Check if access token is expired (with 60s buffer)
+  const isExpired = session.expires_at && Date.now() > (session.expires_at - 60000);
+
+  if (isExpired && session.refresh_token) {
+    // Silently get a new access token using the refresh token
+    try {
+      const data = await sb.auth_refreshToken(session.refresh_token);
+      if (data.access_token) {
+        sb._token = data.access_token;
+        saveSessionFull(data);
+      } else {
+        // Refresh failed — clear session and ask user to log in
+        localStorage.removeItem('clubapp_session');
+        return false;
+      }
+    } catch(e) {
+      // Network error — try with existing token anyway
+      sb._token = session.access_token;
+    }
+  } else {
+    sb._token = session.access_token;
+  }
+
+  // Load the user profile
   const profiles = await sb.select('profiles', `id=eq.${session.user_id}`);
   if (!Array.isArray(profiles) || profiles.length === 0) {
     localStorage.removeItem('clubapp_session');
@@ -4502,7 +4544,7 @@ window.completeSignupAfterConfirm = async () => {
   }
 
   sb._token = data.access_token;
-  saveSession({ access_token: data.access_token, user_id: data.user?.id });
+  saveSessionFull(data);
 
   // Create profile if it doesn't exist yet
   const existing = await sb.select('profiles', `id=eq.${p.userId}`);
@@ -5980,6 +6022,23 @@ async function pollAll() {
       render();
     }
   } catch(e) { console.log('Message poll error:', e); }
+}
+
+// Silently refresh the access token every 50 minutes while app is open
+let _tokenRefreshInterval = null;
+function startTokenRefresh() {
+  if (_tokenRefreshInterval) clearInterval(_tokenRefreshInterval);
+  _tokenRefreshInterval = setInterval(async () => {
+    const session = loadSession();
+    if (!session?.refresh_token) return;
+    try {
+      const data = await sb.auth_refreshToken(session.refresh_token);
+      if (data.access_token) {
+        sb._token = data.access_token;
+        saveSessionFull(data);
+      }
+    } catch(e) { /* silent fail — next poll will handle auth errors */ }
+  }, 50 * 60 * 1000); // every 50 minutes
 }
 
 function startPolling() {
