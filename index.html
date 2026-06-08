@@ -404,8 +404,8 @@
 
   .insta-image {
     width: 100%;
-    aspect-ratio: 1 / 1;
-    object-fit: cover;
+    max-height: 400px;
+    object-fit: contain;
     display: block;
     background: var(--surface2);
   }
@@ -1821,10 +1821,36 @@ async function loadAppData() {
     console.error('loadAppData error:', e);
   }
 
-  // Fetch Instagram feed (non-blocking)
-  fetchInstagramFeed();
+  // Fetch Instagram feed in parallel — renders feed section when ready
+  fetchInstagramFeed().then(() => {
+    // Update only the Instagram feed div without resetting scroll position
+    const feedEl = document.getElementById('instagram-feed-container');
+    if (feedEl) feedEl.innerHTML = buildInstagramCards();
+  });
 
   state.loading = false;
+}
+
+// ── Instagram cards builder (used for in-place DOM update) ──────────────
+function buildInstagramCards() {
+  if (state.instagramPosts.length === 0) {
+    return '<div class="empty-state">No Instagram posts found</div>';
+  }
+  return state.instagramPosts.map(p => `
+    <div class="insta-card" onclick="window.open('${p.link}','_blank')">
+      ${p.image ? `<img class="insta-image" src="${p.image}" loading="lazy" onerror="this.style.display='none'"/>` : ''}
+      <div class="insta-body">
+        ${p.title ? `<div class="insta-title">${p.title}</div>` : ''}
+        ${p.caption && p.caption !== p.title ? `<div class="insta-caption">${p.caption}</div>` : ''}
+        <div class="insta-footer">
+          <div class="insta-date">${p.date ? new Date(p.date).toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) : ''}</div>
+          <div class="insta-handle">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor" stroke="none"/></svg>
+            View on Instagram
+          </div>
+        </div>
+      </div>
+    </div>`).join('');
 }
 
 // ── Fetch Instagram RSS feed ─────────────────────────────────────────────
@@ -2807,24 +2833,10 @@ function buildHome() {
             </div>
             <div class="view-all" onclick="window.open('https://www.instagram.com/laurimarcc/','_blank')">View profile</div>
           </div>
-          <div class="instagram-feed" style="margin-top:10px;">
+          <div id="instagram-feed-container" class="instagram-feed" style="margin-top:10px;">
             ${state.instagramPosts.length === 0
-              ? `<div class="empty-state">Loading Instagram posts...</div>`
-              : state.instagramPosts.map(p => `
-                <div class="insta-card" onclick="window.open('${p.link}','_blank')">
-                  ${p.image ? `<img class="insta-image" src="${p.image}" loading="lazy" onerror="this.style.display='none'"/>` : ''}
-                  <div class="insta-body">
-                    ${p.title ? `<div class="insta-title">${p.title}</div>` : ''}
-                    ${p.caption && p.caption !== p.title ? `<div class="insta-caption">${p.caption}</div>` : ''}
-                    <div class="insta-footer">
-                      <div class="insta-date">${p.date ? new Date(p.date).toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) : ''}</div>
-                      <div class="insta-handle">
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor" stroke="none"/></svg>
-                        View on Instagram
-                      </div>
-                    </div>
-                  </div>
-                </div>`).join('')
+              ? `<div class="empty-state" style="display:flex;align-items:center;gap:8px;"><span style="opacity:0.5;">Loading posts...</span></div>`
+              : buildInstagramCards()
             }
           </div>
         </div>
@@ -5888,7 +5900,11 @@ async function pollAll() {
         newPost.link
       );
     }
-    if (state.screen === 'home') render();
+    // Update feed in-place — no scroll reset
+    if (state.screen === 'home') {
+      const feedEl = document.getElementById('instagram-feed-container');
+      if (feedEl) feedEl.innerHTML = buildInstagramCards();
+    }
   }
 
   // ── Poll messages every 5s ────────────────────────────────────────────
