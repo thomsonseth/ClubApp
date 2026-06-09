@@ -1553,6 +1553,7 @@ const state = {
     fixturesByGrade: {},       // { gradeId: { name, fixtures[] } }
     selectedFixtureIds: [],
     loading: false,
+    restoringSession: true,
     error: '',
   },
   error: '',
@@ -2662,7 +2663,14 @@ function buildBottomNav() {
 
 // ── SPLASH ────────────────────────────────────────────────────────────────
 function buildSplash() {
-  if (state.restoringSession) {
+  // Show spinner if there's a saved session (restore in progress)
+  // Show login buttons only if no session exists or restore explicitly failed
+  const hasSession = (() => {
+    try { const s = JSON.parse(localStorage.getItem('clubapp_session')||'null'); return !!(s?.access_token); }
+    catch(e) { return false; }
+  })();
+
+  if (state.restoringSession && hasSession) {
     return `<div class="screen">
       <div class="splash">
         <div class="splash-logo-area">
