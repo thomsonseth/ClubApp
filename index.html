@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
 <title>ClubApp – Laurimar Power Cricket Club</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -118,7 +118,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: calc(36px + env(safe-area-inset-top, 0px)) 16px 10px;
+    padding: 36px 16px 10px;
     position: relative;
     flex-shrink: 0;
   }
@@ -126,7 +126,7 @@
   .top-banner .back-btn {
     position: absolute;
     left: 12px;
-    top: calc(36px + env(safe-area-inset-top, 0px));
+    top: 36px;
     background: var(--surface);
     border: none;
     color: var(--text);
@@ -157,7 +157,7 @@
     border-top: 1px solid var(--border);
     display: flex;
     flex-shrink: 0;
-    padding: 8px 0 max(20px, env(safe-area-inset-bottom));
+    padding: 8px 0 20px;
   }
 
   .nav-tab {
