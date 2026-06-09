@@ -1960,8 +1960,9 @@ async function persistProfiles() {
 // ── AUTH: Login ───────────────────────────────────────────────────────────
 async function handleLogin() {
   const { email, password } = state.loginForm;
-  if (!email || !password) { state.error = 'Please enter your email and password.'; render(); return; }
-  state.loading = true; state.error = ''; render();
+  if (!email || !password) { state.error = 'Please enter your email and password.'; render(true); return; }
+  // loading=true already set by doLogin before calling this
+  state.error = '';
 
   let data;
   try {
@@ -2154,39 +2155,47 @@ async function confirmDeleteProfile() {
 // ── Try to restore session on app load ───────────────────────────────────
 async function tryRestoreSession() {
   const session = loadSession();
+  console.log('[Session] Loaded:', session ? `user=${session.user_id} hasRefresh=${!!session.refresh_token}` : 'none');
   if (!session?.access_token) return false;
 
-  // Always try to refresh the token on app open if we have a refresh token.
-  // This ensures the session is always fresh regardless of expiry tracking.
+  // Step 1: Get a valid token — try refresh first, fall back to existing
   if (session.refresh_token) {
     try {
       const data = await sb.auth_refreshToken(session.refresh_token);
+      console.log('[Session] Refresh response:', data.access_token ? 'OK' : (data.error_description || data.error || JSON.stringify(data).substring(0,100)));
       if (data.access_token) {
         sb._token = data.access_token;
         saveSessionFull(data);
       } else {
-        // Refresh token rejected by Supabase — session is dead, force login
-        localStorage.removeItem('clubapp_session');
-        return false;
+        // Refresh failed — but don't give up yet, try the existing token
+        console.log('[Session] Refresh failed, trying existing token');
+        sb._token = session.access_token;
       }
     } catch(e) {
-      // Network error — fall back to existing token and hope it's still valid
+      console.log('[Session] Refresh network error, using existing token:', e.message);
       sb._token = session.access_token;
     }
   } else {
-    // No refresh token saved (legacy session) — use access token directly
     sb._token = session.access_token;
   }
 
-  // Load the user profile
-  const profiles = await sb.select('profiles', `id=eq.${session.user_id}`);
-  if (!Array.isArray(profiles) || profiles.length === 0) {
+  // Step 2: Load profile using whatever token we have
+  try {
+    const profiles = await sb.select('profiles', `id=eq.${session.user_id}`);
+    console.log('[Session] Profile fetch:', Array.isArray(profiles) ? `${profiles.length} rows` : JSON.stringify(profiles).substring(0,100));
+    if (!Array.isArray(profiles) || profiles.length === 0) {
+      // Profile fetch failed — token is dead, clear and force login
+      localStorage.removeItem('clubapp_session');
+      return false;
+    }
+    state.user = profileToUser(profiles[0]);
+  } catch(e) {
+    console.log('[Session] Profile fetch error:', e.message);
     localStorage.removeItem('clubapp_session');
     return false;
   }
-  state.user = profileToUser(profiles[0]);
+
   await loadAppData();
-  // Re-link device to user after session restore
   setTimeout(() => {
     reRegisterOneSignal();
     requestNotificationPermission();
