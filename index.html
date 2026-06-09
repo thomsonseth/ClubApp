@@ -4361,9 +4361,7 @@ function buildSettings() {
       <div class="settings-content">
         <div>
           <div class="section-title">Push Notifications</div>
-          <div id="notif-status-card" style="background:var(--surface);border-radius:14px;padding:14px 16px;margin-bottom:10px;">
-            <div style="font-size:13px;color:var(--text-muted)">Checking status...</div>
-          </div>
+
           <div style="display:flex;flex-direction:column;gap:8px;">
             <div class="toggle-row"><span class="toggle-label">Social events</span><div class="toggle ${t.social?'on':''}" onclick="toggleSetting('social')"></div></div>
             <div class="toggle-row"><span class="toggle-label">Announcements</span><div class="toggle ${t.announcements?'on':''}" onclick="toggleSetting('announcements')"></div></div>
@@ -4563,78 +4561,9 @@ function buildModal() {
 // ── GLOBAL FUNCTIONS (called from onclick) ────────────────────────────────
 window.navigate = navigate;
 
-// After navigating to settings, update the notification status card
-const _origNavigate = navigate;
-window.navigate = function(screen, params) {
-  _origNavigate(screen, params);
-  if (screen === 'settings') {
-    setTimeout(updateNotifStatusCard, 1500);
-  }
-};
 
-async function updateNotifStatusCard() {
-  const card = document.getElementById('notif-status-card');
-  if (!card) return;
 
-  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
-  const isStandalone = window.navigator.standalone === true;
 
-  // iOS in Safari browser (not installed)
-  if (isIOS && !isStandalone) {
-    card.innerHTML = `<div style="display:flex;align-items:center;gap:10px;">
-      <div style="width:10px;height:10px;border-radius:50%;background:#f59e0b;flex-shrink:0;"></div>
-      <div>
-        <div style="font-size:14px;font-weight:600;color:var(--text)">Add to Home Screen to enable</div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Push notifications require the app to be added to your Home Screen via Safari → Share → Add to Home Screen.</div>
-      </div>
-    </div>`;
-    return;
-  }
-
-  // Wait for OneSignal to be ready (up to 5 seconds)
-  let attempts = 0;
-  while (!window.OneSignal && attempts < 10) {
-    await new Promise(r => setTimeout(r, 500));
-    attempts++;
-  }
-
-  // Check native browser permission first (most reliable)
-  let granted = false;
-  try {
-    if (window.Notification) {
-      granted = Notification.permission === 'granted';
-    } else if (window.OneSignal) {
-      granted = await window.OneSignal.Notifications.permission;
-    }
-  } catch(e) {}
-
-  if (granted) {
-    card.innerHTML = `<div style="display:flex;align-items:center;gap:10px;">
-      <div style="width:10px;height:10px;border-radius:50%;background:#22c55e;flex-shrink:0;"></div>
-      <div>
-        <div style="font-size:14px;font-weight:600;color:var(--text)">Notifications enabled</div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">You'll receive push notifications from the club</div>
-      </div>
-    </div>`;
-  } else if (window.Notification && Notification.permission === 'denied') {
-    card.innerHTML = `<div style="display:flex;align-items:center;gap:10px;">
-      <div style="width:10px;height:10px;border-radius:50%;background:var(--red);flex-shrink:0;"></div>
-      <div>
-        <div style="font-size:14px;font-weight:600;color:var(--text)">Notifications blocked</div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Go to Settings → Safari → Notifications to enable</div>
-      </div>
-    </div>`;
-  } else {
-    card.innerHTML = `<div style="display:flex;align-items:center;gap:10px;">
-      <div style="width:10px;height:10px;border-radius:50%;background:#f59e0b;flex-shrink:0;"></div>
-      <div>
-        <div style="font-size:14px;font-weight:600;color:var(--text)">Notifications not yet enabled</div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Tap below to allow push notifications</div>
-      </div>
-    </div>
-    <button onclick="requestNotificationPermission().then(()=>updateNotifStatusCard())" style="margin-top:10px;width:100%;padding:10px;background:var(--accent);color:#000;font-weight:700;font-size:13px;border:none;border-radius:10px;cursor:pointer;">Enable Notifications</button>`;
-  }
-}
 window.goBack = goBack;
 window.setTab = setTab;
 
@@ -5947,13 +5876,6 @@ async function requestNotificationPermission() {
   }
 }
 
-async function getNotificationPermissionState() {
-  try {
-    if (!window.OneSignal) return 'unsupported';
-    const enabled = await window.OneSignal.Notifications.permission;
-    return enabled ? 'granted' : 'denied';
-  } catch(e) { return 'unsupported'; }
-}
 
 // Call after restoring session too
 async function reRegisterOneSignal() {
