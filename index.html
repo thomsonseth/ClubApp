@@ -1997,15 +1997,15 @@ async function handleLogin() {
   navigate('home');
   state.activeTab = 'home';
   state.loading = false;
-  render();
+  render(true);
   setTimeout(() => {
     requestNotificationPermission();
-    // Link this device to the user's ID for targeted notifications
     if (window.OneSignal) {
       window.OneSignal.login(state.user.id).catch(() => {});
     }
   }, 2000);
   startPolling();
+  startTokenRefresh();
 }
 
 // ── AUTH: Sign up ─────────────────────────────────────────────────────────
@@ -6182,20 +6182,20 @@ function handleDeepLink() {
 
 // ── BOOT ──────────────────────────────────────────────────────────────────
 (async () => {
-  render();
-  const restored = await tryRestoreSession();
-  checkShowInstallPrompt();
-  // Update splash text to show we're checking session (not blank)
+  render(true); // force render splash screen immediately
+  // Show 'signing you in' message before attempting restore
   const splashMsg = document.querySelector('.splash-tagline');
   if (splashMsg) splashMsg.textContent = 'Signing you in...';
+  const restored = await tryRestoreSession();
+  checkShowInstallPrompt();
   if (restored) {
     navigate('home');
     state.activeTab = 'home';
     startPolling();
-    // Handle deep link from notification
+    startTokenRefresh();
     setTimeout(handleDeepLink, 300);
   }
-  render();
+  render(true); // force render regardless of focus state
 })();
 </script>
 </body>
