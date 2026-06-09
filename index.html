@@ -1674,11 +1674,15 @@ function saveSession(session) {
   try { localStorage.setItem('clubapp_session', JSON.stringify(session)); } catch(e) {}
 }
 function saveSessionFull(data) {
-  // Save both access and refresh token
+  // Supabase login response: { access_token, refresh_token, expires_in, user: { id } }
+  // Supabase refresh response: { access_token, refresh_token, expires_in, user: { id } }
+  // Guard: only save if we actually have the tokens
+  if (!data.access_token) return;
+  const existing = loadSession();
   saveSession({
     access_token:  data.access_token,
-    refresh_token: data.refresh_token,
-    user_id:       data.user?.id,
+    refresh_token: data.refresh_token || existing?.refresh_token || null,
+    user_id:       data.user?.id || existing?.user_id || null,
     expires_at:    Date.now() + ((data.expires_in || 3600) * 1000),
   });
 }
@@ -2152,26 +2156,25 @@ async function tryRestoreSession() {
   const session = loadSession();
   if (!session?.access_token) return false;
 
-  // Check if access token is expired (with 60s buffer)
-  const isExpired = session.expires_at && Date.now() > (session.expires_at - 60000);
-
-  if (isExpired && session.refresh_token) {
-    // Silently get a new access token using the refresh token
+  // Always try to refresh the token on app open if we have a refresh token.
+  // This ensures the session is always fresh regardless of expiry tracking.
+  if (session.refresh_token) {
     try {
       const data = await sb.auth_refreshToken(session.refresh_token);
       if (data.access_token) {
         sb._token = data.access_token;
         saveSessionFull(data);
       } else {
-        // Refresh failed — clear session and ask user to log in
+        // Refresh token rejected by Supabase — session is dead, force login
         localStorage.removeItem('clubapp_session');
         return false;
       }
     } catch(e) {
-      // Network error — try with existing token anyway
+      // Network error — fall back to existing token and hope it's still valid
       sb._token = session.access_token;
     }
   } else {
+    // No refresh token saved (legacy session) — use access token directly
     sb._token = session.access_token;
   }
 
@@ -2688,7 +2691,12 @@ function buildLogin() {
           <div class="forgot-link" onclick="navigate('forgotpassword')">Forgot password?</div>
           ${state.error ? `<div class="error-msg">${state.error}</div>` : ''}
         </div>
-        <button class="btn-primary" onclick="doLogin()">Log in</button>
+        <button class="btn-primary" id="login-btn" onclick="doLogin()">
+          ${state.loading
+            ? '<span style="display:inline-flex;align-items:center;gap:8px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 0.7s linear infinite"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>Signing in...</span>'
+            : 'Log in'
+          }
+        </button>
         <div class="auth-link" onclick="navigate('signup')">Don't have an account? Create one</div>
       </div>
     </div>
@@ -4595,12 +4603,16 @@ window.doLogin = () => {
   state.loginForm.password = document.getElementById('login-password')?.value || '';
   if (!state.loginForm.email || !state.loginForm.password) {
     state.error = 'Please enter your email and password.';
-    render(); return;
+    render(true); return;
   }
+  // Show spinner immediately
+  state.loading = true;
+  state.error = '';
+  render(true);
   handleLogin().catch(err => {
     state.error = 'An unexpected error occurred. Please try again.';
     state.loading = false;
-    render();
+    render(true);
     console.error('Login error:', err);
   });
 };
