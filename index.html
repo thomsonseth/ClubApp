@@ -43,8 +43,6 @@
     max-width: 100%;
     background: #000;
     position: relative;
-    /* Push content below notch on iOS */
-    padding-top: env(safe-area-inset-top, 0px);
   }
 
   /* Desktop: show as a centered phone shell */
@@ -73,7 +71,7 @@
       border-radius: 0 0 18px 18px;
       z-index: 100;
     }
-    #app { padding-top: 0; }
+
   }
 
   /* ── GLOBAL COLOURS ── */
@@ -120,7 +118,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 36px 16px 10px;
+    padding: calc(36px + env(safe-area-inset-top, 0px)) 16px 10px;
     position: relative;
     flex-shrink: 0;
   }
@@ -128,7 +126,7 @@
   .top-banner .back-btn {
     position: absolute;
     left: 12px;
-    top: 36px;
+    top: calc(36px + env(safe-area-inset-top, 0px));
     background: var(--surface);
     border: none;
     color: var(--text);
