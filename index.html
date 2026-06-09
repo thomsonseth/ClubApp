@@ -2183,6 +2183,11 @@ async function tryRestoreSession() {
   }
   state.user = profileToUser(profiles[0]);
   await loadAppData();
+  // Re-link device to user after session restore
+  setTimeout(() => {
+    reRegisterOneSignal();
+    requestNotificationPermission();
+  }, 1500);
   return true;
 }
 
@@ -2550,7 +2555,17 @@ const icons = {
 };
 
 // ── RENDER ENGINE ────────────────────────────────────────────────────────
-function render() {
+function isUserTyping() {
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName.toLowerCase();
+  return tag === 'input' || tag === 'textarea' || el.isContentEditable;
+}
+
+function render(force = false) {
+  // Never rebuild the DOM while the user is typing — it destroys focus
+  // Exception: force=true is used for explicit user actions (button clicks)
+  if (!force && isUserTyping()) return;
   const app = document.getElementById('app');
   app.innerHTML = buildScreen();
   attachEvents();
@@ -4304,7 +4319,10 @@ function buildSettings() {
     <div class="screen-scroll">
       <div class="settings-content">
         <div>
-          <div class="section-title">Notification Preferences</div>
+          <div class="section-title">Push Notifications</div>
+          <div id="notif-status-card" style="background:var(--surface);border-radius:14px;padding:14px 16px;margin-bottom:10px;">
+            <div style="font-size:13px;color:var(--text-muted)">Checking status...</div>
+          </div>
           <div style="display:flex;flex-direction:column;gap:8px;">
             <div class="toggle-row"><span class="toggle-label">Social events</span><div class="toggle ${t.social?'on':''}" onclick="toggleSetting('social')"></div></div>
             <div class="toggle-row"><span class="toggle-label">Announcements</span><div class="toggle ${t.announcements?'on':''}" onclick="toggleSetting('announcements')"></div></div>
@@ -4503,6 +4521,72 @@ function buildModal() {
 
 // ── GLOBAL FUNCTIONS (called from onclick) ────────────────────────────────
 window.navigate = navigate;
+
+// After navigating to settings, update the notification status card
+const _origNavigate = navigate;
+window.navigate = function(screen, params) {
+  _origNavigate(screen, params);
+  if (screen === 'settings') {
+    setTimeout(updateNotifStatusCard, 300);
+  }
+};
+
+async function updateNotifStatusCard() {
+  const card = document.getElementById('notif-status-card');
+  if (!card) return;
+
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isStandalone = window.navigator.standalone === true;
+  const state_perm = await getNotificationPermissionState();
+
+  if (!isIOS) {
+    // Android / desktop
+    if (state_perm === 'granted') {
+      card.innerHTML = `<div style="display:flex;align-items:center;gap:10px;">
+        <div style="width:10px;height:10px;border-radius:50%;background:#22c55e;flex-shrink:0;"></div>
+        <div>
+          <div style="font-size:14px;font-weight:600;color:var(--text)">Notifications enabled</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px)">You'll receive push notifications from the club</div>
+        </div>
+      </div>`;
+    } else {
+      card.innerHTML = `<div style="display:flex;align-items:center;gap:10px;">
+        <div style="width:10px;height:10px;border-radius:50%;background:var(--red);flex-shrink:0;"></div>
+        <div>
+          <div style="font-size:14px;font-weight:600;color:var(--text)">Notifications blocked</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Enable in your browser/device settings to receive updates</div>
+        </div>
+      </div>
+      <button onclick="requestNotificationPermission()" style="margin-top:10px;width:100%;padding:10px;background:var(--accent);color:#000;font-weight:700;font-size:13px;border:none;border-radius:10px;cursor:pointer;">Enable Notifications</button>`;
+    }
+  } else if (!isStandalone) {
+    // iOS but not installed as home screen app
+    card.innerHTML = `<div style="display:flex;align-items:center;gap:10px;">
+      <div style="width:10px;height:10px;border-radius:50%;background:#f59e0b;flex-shrink:0;"></div>
+      <div>
+        <div style="font-size:14px;font-weight:600;color:var(--text)">Add to Home Screen to enable</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">iOS only supports push notifications when the app is added to your Home Screen. Tap Share → Add to Home Screen.</div>
+      </div>
+    </div>`;
+  } else if (state_perm === 'granted') {
+    card.innerHTML = `<div style="display:flex;align-items:center;gap:10px;">
+      <div style="width:10px;height:10px;border-radius:50%;background:#22c55e;flex-shrink:0;"></div>
+      <div>
+        <div style="font-size:14px;font-weight:600;color:var(--text)">Notifications enabled</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">You'll receive push notifications from the club</div>
+      </div>
+    </div>`;
+  } else {
+    card.innerHTML = `<div style="display:flex;align-items:center;gap:10px;">
+      <div style="width:10px;height:10px;border-radius:50%;background:var(--red);flex-shrink:0;"></div>
+      <div>
+        <div style="font-size:14px;font-weight:600;color:var(--text)">Notifications not enabled</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Tap below to allow push notifications</div>
+      </div>
+    </div>
+    <button onclick="requestNotificationPermission().then(()=>updateNotifStatusCard())" style="margin-top:10px;width:100%;padding:10px;background:var(--accent);color:#000;font-weight:700;font-size:13px;border:none;border-radius:10px;cursor:pointer;">Enable Notifications</button>`;
+  }
+}
 window.goBack = goBack;
 window.setTab = setTab;
 
@@ -5801,12 +5885,30 @@ const ONESIGNAL_WORKER_URL = 'https://onesignal-proxy.thomsonseth.workers.dev';
 // Request permission from the user after they log in
 async function requestNotificationPermission() {
   try {
-    if (window.OneSignal) {
+    if (!window.OneSignal) return;
+    const permission = await window.OneSignal.Notifications.permission;
+    if (!permission) {
       await window.OneSignal.Notifications.requestPermission();
     }
   } catch(e) {
     console.log('Notification permission request failed:', e);
   }
+}
+
+async function getNotificationPermissionState() {
+  try {
+    if (!window.OneSignal) return 'unsupported';
+    const enabled = await window.OneSignal.Notifications.permission;
+    return enabled ? 'granted' : 'denied';
+  } catch(e) { return 'unsupported'; }
+}
+
+// Call after restoring session too
+async function reRegisterOneSignal() {
+  if (!window.OneSignal || !state.user) return;
+  try {
+    await window.OneSignal.login(state.user.id);
+  } catch(e) {}
 }
 
 async function sendPushNotification(title, message, url = '/') {
@@ -5897,7 +5999,7 @@ async function pollAll() {
           changed = true;
         }
 
-        if (changed) render();
+        if (changed && !isUserTyping()) render();
       }
     } catch(e) { console.log('Event poll error:', e); }
   }
@@ -5922,7 +6024,7 @@ async function pollAll() {
             changed = true;
           }
         });
-        if (changed) render();
+        if (changed && !isUserTyping()) render();
       }
     } catch(e) { console.log('Announcement poll error:', e); }
   }
@@ -6019,7 +6121,8 @@ async function pollAll() {
           `https://laurimar-power.netlify.app/#screen=chat&id=${newMsgThread.id}`,
         );
       }
-      render();
+      // Only re-render if user isn't actively typing
+      if (!isUserTyping()) render();
     }
   } catch(e) { console.log('Message poll error:', e); }
 }
@@ -6081,6 +6184,10 @@ function handleDeepLink() {
 (async () => {
   render();
   const restored = await tryRestoreSession();
+  checkShowInstallPrompt();
+  // Update splash text to show we're checking session (not blank)
+  const splashMsg = document.querySelector('.splash-tagline');
+  if (splashMsg) splashMsg.textContent = 'Signing you in...';
   if (restored) {
     navigate('home');
     state.activeTab = 'home';
