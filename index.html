@@ -2156,22 +2156,6 @@ async function confirmDeleteProfile() {
 async function tryRestoreSession() {
   const session = loadSession();
 
-  // Diagnostic — shows briefly on splash screen, remove after confirmed working
-  const splashEl = document.querySelector('.splash-tagline');
-  if (splashEl) {
-    if (!session) {
-      splashEl.textContent = 'No saved session found';
-    } else if (!session.access_token) {
-      splashEl.textContent = 'Session missing token';
-    } else if (!session.refresh_token) {
-      splashEl.textContent = 'Session has no refresh token';
-    } else if (!session.user_id) {
-      splashEl.textContent = 'Session missing user ID';
-    } else {
-      splashEl.textContent = 'Session found — restoring...';
-    }
-  }
-
   if (!session?.access_token) return false;
 
   // Step 1: Get a valid token — try refresh first, fall back to existing
@@ -2675,11 +2659,27 @@ function buildBottomNav() {
 
 // ── SPLASH ────────────────────────────────────────────────────────────────
 function buildSplash() {
+  // Read session directly from localStorage for diagnostic
+  let diagMsg = '';
+  try {
+    const raw = localStorage.getItem('clubapp_session');
+    if (!raw) {
+      diagMsg = 'No session in storage';
+    } else {
+      const s = JSON.parse(raw);
+      if (!s.access_token) diagMsg = 'Missing access_token';
+      else if (!s.refresh_token) diagMsg = 'Missing refresh_token';
+      else if (!s.user_id) diagMsg = 'Missing user_id';
+      else diagMsg = `Session OK · user: ${s.user_id.substring(0,8)}...`;
+    }
+  } catch(e) { diagMsg = 'Storage error: ' + e.message; }
+
   return `<div class="screen">
     <div class="splash">
       <div class="splash-logo-area">
         ${buildLogo(270)}
       </div>
+      <div style="font-size:11px;color:#666;text-align:center;padding:0 20px;margin-top:-10px;margin-bottom:8px;">${diagMsg}</div>
       <div class="splash-actions">
         <button class="btn-primary" onclick="navigate('login')">Login</button>
         <button class="btn-secondary" onclick="navigate('signup')">Create account</button>
