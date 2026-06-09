@@ -1674,15 +1674,14 @@ function saveSession(session) {
   try { localStorage.setItem('clubapp_session', JSON.stringify(session)); } catch(e) {}
 }
 function saveSessionFull(data) {
-  // Supabase login response: { access_token, refresh_token, expires_in, user: { id } }
-  // Supabase refresh response: { access_token, refresh_token, expires_in, user: { id } }
-  // Guard: only save if we actually have the tokens
   if (!data.access_token) return;
   const existing = loadSession();
+  // CRITICAL: never overwrite user_id with null — refresh responses omit user
+  const user_id = data.user?.id || existing?.user_id || null;
   saveSession({
     access_token:  data.access_token,
     refresh_token: data.refresh_token || existing?.refresh_token || null,
-    user_id:       data.user?.id || existing?.user_id || null,
+    user_id,
     expires_at:    Date.now() + ((data.expires_in || 3600) * 1000),
   });
 }
@@ -1761,9 +1760,11 @@ function eventToRow(ev) {
 }
 
 // ── Load all app data from Supabase ───────────────────────────────────────
-async function loadAppData() {
-  state.loading = true;
-  render();
+async function loadAppData(silent = false) {
+  if (!silent) {
+    state.loading = true;
+    render(true);
+  }
 
   try {
     // Users / profiles
@@ -1971,7 +1972,6 @@ async function handleLogin() {
     state.error = 'Network error — please check your connection and try again.';
     state.loading = false; render(); return;
   }
-  console.log('Login response:', JSON.stringify(data).substring(0, 200));
   if (data.error || !data.access_token) {
     // Surface the real Supabase error so we know what's happening
     const msg = data.error?.message || '';
@@ -2155,24 +2155,20 @@ async function confirmDeleteProfile() {
 // ── Try to restore session on app load ───────────────────────────────────
 async function tryRestoreSession() {
   const session = loadSession();
-  console.log('[Session] Loaded:', session ? `user=${session.user_id} hasRefresh=${!!session.refresh_token}` : 'none');
   if (!session?.access_token) return false;
 
   // Step 1: Get a valid token — try refresh first, fall back to existing
   if (session.refresh_token) {
     try {
       const data = await sb.auth_refreshToken(session.refresh_token);
-      console.log('[Session] Refresh response:', data.access_token ? 'OK' : (data.error_description || data.error || JSON.stringify(data).substring(0,100)));
       if (data.access_token) {
         sb._token = data.access_token;
         saveSessionFull(data);
       } else {
         // Refresh failed — but don't give up yet, try the existing token
-        console.log('[Session] Refresh failed, trying existing token');
         sb._token = session.access_token;
       }
     } catch(e) {
-      console.log('[Session] Refresh network error, using existing token:', e.message);
       sb._token = session.access_token;
     }
   } else {
@@ -2182,20 +2178,18 @@ async function tryRestoreSession() {
   // Step 2: Load profile using whatever token we have
   try {
     const profiles = await sb.select('profiles', `id=eq.${session.user_id}`);
-    console.log('[Session] Profile fetch:', Array.isArray(profiles) ? `${profiles.length} rows` : JSON.stringify(profiles).substring(0,100));
     if (!Array.isArray(profiles) || profiles.length === 0) {
-      // Profile fetch failed — token is dead, clear and force login
+      // Profile returned empty — could be RLS or bad token, force login
       localStorage.removeItem('clubapp_session');
       return false;
     }
     state.user = profileToUser(profiles[0]);
   } catch(e) {
-    console.log('[Session] Profile fetch error:', e.message);
-    localStorage.removeItem('clubapp_session');
+    // Network error fetching profile — don't clear session, just fail gracefully
     return false;
   }
 
-  await loadAppData();
+  await loadAppData(true); // silent — don't show loading spinner during restore
   setTimeout(() => {
     reRegisterOneSignal();
     requestNotificationPermission();
@@ -6215,6 +6209,10 @@ function handleDeepLink() {
     startPolling();
     startTokenRefresh();
     setTimeout(handleDeepLink, 300);
+  } else {
+    // Ensure loading spinner is never stuck on login screen
+    state.loading = false;
+    state.error = '';
   }
   render(true); // force render regardless of focus state
 })();
