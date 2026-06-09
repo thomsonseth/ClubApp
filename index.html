@@ -2582,12 +2582,23 @@ function isUserTyping() {
 
 function render(force = false) {
   // Never rebuild the DOM while the user is typing — it destroys focus
-  // Exception: force=true is used for explicit user actions (button clicks)
   if (!force && isUserTyping()) return;
+
+  // Save scroll position of any scrollable area before rebuild
+  const scrollEl = document.querySelector('.screen-scroll');
+  const savedScroll = scrollEl ? scrollEl.scrollTop : 0;
+
   const app = document.getElementById('app');
   app.innerHTML = buildScreen();
   attachEvents();
-  // scroll chat to bottom
+
+  // Restore scroll position after rebuild (prevents jump to top on poll)
+  if (!force && savedScroll > 0) {
+    const newScrollEl = document.querySelector('.screen-scroll');
+    if (newScrollEl) newScrollEl.scrollTop = savedScroll;
+  }
+
+  // Scroll chat to bottom
   const chatEl = document.querySelector('.chat-messages');
   if (chatEl) chatEl.scrollTop = chatEl.scrollHeight;
 }
@@ -2920,11 +2931,11 @@ function buildHome() {
         <div>
           <div class="section-header">
             <div class="section-title" style="margin-bottom:0">Latest Announcements</div>
-            <div style="display:flex;align-items:center;gap:12px;">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <div class="view-all" onclick="navigate('announcements')">View all</div>
               ${isAdmin ? `<button onclick="navigate('createannouncement')" style="width:28px;height:28px;border-radius:50%;background:var(--accent);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;" title="Create announcement">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               </button>` : ''}
-              <div class="view-all" onclick="navigate('announcements')">View all</div>
             </div>
           </div>
           <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px;">
