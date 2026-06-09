@@ -1480,6 +1480,7 @@ function persistClubConfig() {
 // ── STATE ──────────────────────────────────────────────────────────────
 const state = {
   screen: 'splash',          // current screen
+  restoringSession: true,    // shows spinner on splash until boot completes
   pendingSignup: null,        // set when email confirmation required
   prevScreen: null,
   user: null,                // logged in user
@@ -1553,7 +1554,6 @@ const state = {
     fixturesByGrade: {},       // { gradeId: { name, fixtures[] } }
     selectedFixtureIds: [],
     loading: false,
-    restoringSession: true,
     error: '',
   },
   error: '',
