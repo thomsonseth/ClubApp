@@ -2155,6 +2155,23 @@ async function confirmDeleteProfile() {
 // ── Try to restore session on app load ───────────────────────────────────
 async function tryRestoreSession() {
   const session = loadSession();
+
+  // Diagnostic — shows briefly on splash screen, remove after confirmed working
+  const splashEl = document.querySelector('.splash-tagline');
+  if (splashEl) {
+    if (!session) {
+      splashEl.textContent = 'No saved session found';
+    } else if (!session.access_token) {
+      splashEl.textContent = 'Session missing token';
+    } else if (!session.refresh_token) {
+      splashEl.textContent = 'Session has no refresh token';
+    } else if (!session.user_id) {
+      splashEl.textContent = 'Session missing user ID';
+    } else {
+      splashEl.textContent = 'Session found — restoring...';
+    }
+  }
+
   if (!session?.access_token) return false;
 
   // Step 1: Get a valid token — try refresh first, fall back to existing
