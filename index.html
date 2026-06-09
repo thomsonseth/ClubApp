@@ -2910,12 +2910,26 @@ function buildHome() {
           <div class="welcome-role">${u.role}</div>
         </div>
         <div>
+          <div class="section-title">Next Match</div>
+          ${matchCard}
+        </div>
+        <div>
           <div class="section-title">Next Social Event</div>
           ${socialCard}
         </div>
         <div>
-          <div class="section-title">Next Match</div>
-          ${matchCard}
+          <div class="section-header">
+            <div class="section-title" style="margin-bottom:0">Latest Announcements</div>
+            <div style="display:flex;align-items:center;gap:12px;">
+              ${isAdmin ? `<button onclick="navigate('createannouncement')" style="width:28px;height:28px;border-radius:50%;background:var(--accent);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;" title="Create announcement">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </button>` : ''}
+              <div class="view-all" onclick="navigate('announcements')">View all</div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px;">
+            ${annCards || '<div class="empty-state">No announcements yet</div>'}
+          </div>
         </div>
         <div>
           <div class="section-header">
@@ -2934,18 +2948,6 @@ function buildHome() {
             }
           </div>
         </div>
-        <div>
-          <div class="section-header">
-            <div class="section-title" style="margin-bottom:0">Latest Announcements</div>
-            <div class="view-all" onclick="navigate('announcements')">View all</div>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px;">
-            ${annCards || '<div class="empty-state">No announcements yet</div>'}
-          </div>
-        </div>
-        ${isAdmin ? `<button class="btn-primary" style="display:flex;align-items:center;justify-content:center;gap:8px;" onclick="navigate('createannouncement')">
-          <span>${icons.plus}</span> Create announcement
-        </button>` : ''}
       </div>
     </div>
   </div>`;
