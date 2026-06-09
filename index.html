@@ -2662,28 +2662,24 @@ function buildBottomNav() {
 
 // ── SPLASH ────────────────────────────────────────────────────────────────
 function buildSplash() {
-  // Read session directly from localStorage for diagnostic
-  let diagMsg = '';
-  try {
-    const raw = localStorage.getItem('clubapp_session');
-    if (!raw) {
-      diagMsg = 'No session in storage';
-    } else {
-      const s = JSON.parse(raw);
-      if (!s.access_token) diagMsg = 'Missing access_token';
-      else if (!s.refresh_token) diagMsg = 'Missing refresh_token';
-      else if (!s.user_id) diagMsg = 'Missing user_id';
-      else diagMsg = `Session OK · user: ${s.user_id.substring(0,8)}...`;
-    }
-  } catch(e) { diagMsg = 'Storage error: ' + e.message; }
-
+  if (state.restoringSession) {
+    return `<div class="screen">
+      <div class="splash">
+        <div class="splash-logo-area">
+          ${buildLogo(270)}
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:14px;margin-top:8px;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5" style="animation:spin 0.8s linear infinite"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+          <div style="font-size:15px;color:var(--text-muted);font-weight:500;">Logging you in...</div>
+        </div>
+      </div>
+    </div>`;
+  }
   return `<div class="screen">
     <div class="splash">
       <div class="splash-logo-area">
         ${buildLogo(270)}
       </div>
-      <div style="font-size:11px;color:#666;text-align:center;padding:0 20px;margin-top:-10px;margin-bottom:8px;">${diagMsg}</div>
-      <div style="font-size:10px;color:#555;text-align:center;padding:0 16px;margin-bottom:6px;word-break:break-all;">${(()=>{try{return localStorage.getItem('clubapp_diag')||''}catch(e){return ''}})()}</div>
       <div class="splash-actions">
         <button class="btn-primary" onclick="navigate('login')">Login</button>
         <button class="btn-secondary" onclick="navigate('signup')">Create account</button>
@@ -6245,6 +6241,7 @@ function checkShowInstallPrompt() {
   try {
     render(true);
     const restored = await tryRestoreSession();
+    state.restoringSession = false;
     try { checkShowInstallPrompt(); } catch(e) {}
     if (restored) {
       navigate('home');
