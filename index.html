@@ -6216,26 +6216,53 @@ function handleDeepLink() {
   render();
 }
 
+// ── iOS install prompt ───────────────────────────────────────────────────
+function checkShowInstallPrompt() {
+  try {
+    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    const isStandalone = window.navigator.standalone === true;
+    const dismissed = localStorage.getItem('install_prompt_dismissed');
+    if (!isIOS || isStandalone || dismissed) return;
+    const existing = document.getElementById('install-banner');
+    if (existing) return;
+    const banner = document.createElement('div');
+    banner.id = 'install-banner';
+    banner.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#1a1a1a;border-top:1px solid #333;padding:14px 16px 32px;display:flex;align-items:flex-start;gap:12px;';
+    banner.innerHTML = `
+      <div style="flex:1;">
+        <div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:3px;">Add Laurimar CC to your Home Screen</div>
+        <div style="font-size:12px;color:#999;line-height:1.4;">Tap <strong style="color:#fff;">Share</strong> then <strong style="color:#fff;">"Add to Home Screen"</strong> to enable push notifications.</div>
+      </div>
+      <button onclick="document.getElementById('install-banner').remove();localStorage.setItem('install_prompt_dismissed','1')"
+        style="background:none;border:none;color:#999;font-size:22px;cursor:pointer;padding:0;flex-shrink:0;line-height:1;">✕</button>
+    `;
+    document.body.appendChild(banner);
+  } catch(e) {}
+}
+
 // ── BOOT ──────────────────────────────────────────────────────────────────
 (async () => {
-  render(true); // force render splash screen immediately
-  // Show 'signing you in' message before attempting restore
-  const splashMsg = document.querySelector('.splash-tagline');
-  if (splashMsg) splashMsg.textContent = 'Signing you in...';
-  const restored = await tryRestoreSession();
-  checkShowInstallPrompt();
-  if (restored) {
-    navigate('home');
-    state.activeTab = 'home';
-    startPolling();
-    startTokenRefresh();
-    setTimeout(handleDeepLink, 300);
-  } else {
-    // Ensure loading spinner is never stuck on login screen
+  try {
+    render(true);
+    const restored = await tryRestoreSession();
+    try { checkShowInstallPrompt(); } catch(e) {}
+    if (restored) {
+      navigate('home');
+      state.activeTab = 'home';
+      startPolling();
+      startTokenRefresh();
+      setTimeout(handleDeepLink, 300);
+    } else {
+      state.loading = false;
+      state.error = '';
+    }
+    render(true);
+  } catch(e) {
+    console.error('Boot error:', e);
     state.loading = false;
     state.error = '';
+    render(true);
   }
-  render(true); // force render regardless of focus state
 })();
 </script>
 </body>
