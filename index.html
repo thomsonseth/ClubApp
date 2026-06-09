@@ -20,47 +20,29 @@
   }
 
   /* Phone frame: full-screen on real devices, preview shell on desktop */
+  /* Mobile: full screen, edges flush with screen including notch/home indicator areas */
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+  }
+
   #phone-frame {
     position: fixed;
     top: 0;
     left: 0;
     right: 0;
     bottom: 0;
+    /* Extend into safe areas so background fills the whole screen */
+    padding-top: env(safe-area-inset-top, 0px);
     background: #000;
     overflow: hidden;
     display: flex;
     flex-direction: column;
-  }
-
-  /* Desktop: show as a centered phone shell */
-  @media (min-width: 600px) {
-    body {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      background: #111318;
-    }
-    #phone-frame {
-      position: relative;
-      width: 390px;
-      height: 844px;
-      border-radius: 50px;
-      box-shadow: 0 0 0 12px #1c1c1e, 0 0 0 14px #3a3a3c, 0 40px 80px rgba(0,0,0,0.8);
-      top: auto;
-      left: auto;
-      right: auto;
-      bottom: auto;
-    }
-    #phone-frame::before {
-      content: '';
-      position: absolute;
-      top: 0; left: 50%; transform: translateX(-50%);
-      width: 120px; height: 28px;
-      background: #000;
-      border-radius: 0 0 18px 18px;
-      z-index: 100;
-    }
+    box-sizing: border-box;
   }
 
   #app {
@@ -71,12 +53,37 @@
     max-width: 100%;
     background: #000;
     position: relative;
+    min-height: 0;
   }
 
-  /* Ensure content doesn't sit behind iPhone notch or home indicator */
-  @supports (padding: env(safe-area-inset-bottom)) {
+  /* Desktop: show as a centered phone shell */
+  @media (min-width: 600px) {
+    html, body {
+      background: #111318;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      height: 100%;
+    }
     #phone-frame {
-      padding-top: env(safe-area-inset-top, 0px);
+      position: relative;
+      width: 390px;
+      height: 844px;
+      border-radius: 50px;
+      box-shadow: 0 0 0 12px #1c1c1e, 0 0 0 14px #3a3a3c, 0 40px 80px rgba(0,0,0,0.8);
+      top: auto; left: auto; right: auto; bottom: auto;
+      padding-top: 0;
+      flex-shrink: 0;
+    }
+    #phone-frame::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 50%; transform: translateX(-50%);
+      width: 120px; height: 28px;
+      background: #000;
+      border-radius: 0 0 18px 18px;
+      z-index: 100;
     }
   }
 
@@ -164,6 +171,9 @@
     display: flex;
     padding: 8px 0 calc(8px + env(safe-area-inset-bottom, 0px));
     flex-shrink: 0;
+    /* Extend background into home indicator zone */
+    margin-bottom: calc(-1 * env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
   }
 
   .nav-tab {
