@@ -2155,42 +2155,45 @@ async function confirmDeleteProfile() {
 // ── Try to restore session on app load ───────────────────────────────────
 async function tryRestoreSession() {
   const session = loadSession();
-
   if (!session?.access_token) return false;
 
-  // Step 1: Get a valid token — try refresh first, fall back to existing
+  // Step 1: Refresh token
   if (session.refresh_token) {
     try {
       const data = await sb.auth_refreshToken(session.refresh_token);
       if (data.access_token) {
         sb._token = data.access_token;
         saveSessionFull(data);
+        localStorage.setItem('clubapp_diag', 'Refresh OK');
       } else {
-        // Refresh failed — but don't give up yet, try the existing token
         sb._token = session.access_token;
+        localStorage.setItem('clubapp_diag', 'Refresh failed: ' + JSON.stringify(data).substring(0, 80));
       }
     } catch(e) {
       sb._token = session.access_token;
+      localStorage.setItem('clubapp_diag', 'Refresh threw: ' + e.message);
     }
   } else {
     sb._token = session.access_token;
+    localStorage.setItem('clubapp_diag', 'No refresh token - using access token directly');
   }
 
-  // Step 2: Load profile using whatever token we have
+  // Step 2: Load profile
   try {
     const profiles = await sb.select('profiles', `id=eq.${session.user_id}`);
     if (!Array.isArray(profiles) || profiles.length === 0) {
-      // Profile returned empty — could be RLS or bad token, force login
+      localStorage.setItem('clubapp_diag', (localStorage.getItem('clubapp_diag')||'') + ' | Profile fetch: 0 rows - clearing session');
       localStorage.removeItem('clubapp_session');
       return false;
     }
+    localStorage.setItem('clubapp_diag', (localStorage.getItem('clubapp_diag')||'') + ' | Profile OK');
     state.user = profileToUser(profiles[0]);
   } catch(e) {
-    // Network error fetching profile — don't clear session, just fail gracefully
+    localStorage.setItem('clubapp_diag', (localStorage.getItem('clubapp_diag')||'') + ' | Profile threw: ' + e.message);
     return false;
   }
 
-  await loadAppData(true); // silent — don't show loading spinner during restore
+  await loadAppData(true);
   setTimeout(() => {
     reRegisterOneSignal();
     requestNotificationPermission();
@@ -2680,6 +2683,7 @@ function buildSplash() {
         ${buildLogo(270)}
       </div>
       <div style="font-size:11px;color:#666;text-align:center;padding:0 20px;margin-top:-10px;margin-bottom:8px;">${diagMsg}</div>
+      <div style="font-size:10px;color:#555;text-align:center;padding:0 16px;margin-bottom:6px;word-break:break-all;">${(()=>{try{return localStorage.getItem('clubapp_diag')||''}catch(e){return ''}})()}</div>
       <div class="splash-actions">
         <button class="btn-primary" onclick="navigate('login')">Login</button>
         <button class="btn-secondary" onclick="navigate('signup')">Create account</button>
