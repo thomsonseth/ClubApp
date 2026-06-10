@@ -2401,6 +2401,12 @@ function sliderNav(prefix, dir) {
 }
 window.sliderNav = sliderNav;
 
+window.goToEventsTab = function(tab) {
+  state.eventsTab = tab;
+  state.activeTab = 'events';
+  navigate('events');
+};
+
 function goBack() {
   if (state.screen === 'createevent') state.editingEventId = null;
   if (state.screen === 'clubinfo') state.clubInfoEditing = false;
@@ -3049,7 +3055,7 @@ function buildHome() {
         </div>
         <div>
           <div class="section-header" style="margin-bottom:0;">
-            <div class="section-title" style="margin-bottom:0;cursor:pointer;display:flex;align-items:center;gap:6px;" onclick="state.eventsTab='matches';navigate('events')">
+            <div class="section-title" style="margin-bottom:0;cursor:pointer;display:flex;align-items:center;gap:6px;" onclick="goToEventsTab('matches')">
               Matches
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
             </div>
@@ -3058,7 +3064,7 @@ function buildHome() {
         </div>
         <div>
           <div class="section-header" style="margin-bottom:0;">
-            <div class="section-title" style="margin-bottom:0;cursor:pointer;display:flex;align-items:center;gap:6px;" onclick="state.eventsTab='social';navigate('events')">
+            <div class="section-title" style="margin-bottom:0;cursor:pointer;display:flex;align-items:center;gap:6px;" onclick="goToEventsTab('social')">
               Social Events
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
             </div>
