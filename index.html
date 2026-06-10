@@ -1891,15 +1891,20 @@ async function loadAppData(silent = false) {
 
     // Announcements
     const annRows = await sb.select('announcements', 'order=created_at.desc');
-    state.announcements = Array.isArray(annRows) ? annRows.map(a => ({
-      id: a.id,
-      title: a.title,
-      body: a.body,
-      image: a.image_url || null,
-      date: a.created_at ? a.created_at.slice(0,10) : '',
-      author: a.author_name || 'Admin',
-      recipients: a.recipients || 'all',
-    })) : [];
+    // Filter out any locally-deleted announcements on load
+    let _deletedOnLoad = new Set();
+    try { _deletedOnLoad = new Set(JSON.parse(localStorage.getItem('clubapp_deleted_anns') || '[]')); } catch(e) {}
+    state.announcements = Array.isArray(annRows) ? annRows
+      .filter(a => !_deletedOnLoad.has(a.id))
+      .map(a => ({
+        id: a.id,
+        title: a.title,
+        body: a.body,
+        image: a.image_url || null,
+        date: a.created_at ? a.created_at.slice(0,10) : '',
+        author: a.author_name || 'Admin',
+        recipients: a.recipients || 'all',
+      })) : [];
 
     // Threads + messages
     const threads = await sb.select('threads', 'order=created_at.asc');
@@ -5426,12 +5431,17 @@ window.confirmDeleteAnnouncement = (id) => {
 
 window.deleteAnnouncement = async (id) => {
   state.modal = null;
-  // Remove from local state immediately so UI updates instantly
+  // Remove from local state immediately
   state.announcements = state.announcements.filter(a => a.id !== id);
-  if (!state._deletedAnnIds) state._deletedAnnIds = new Set();
-  state._deletedAnnIds.add(id);
+  // Save to localStorage blacklist BEFORE navigating
+  try {
+    const deleted = JSON.parse(localStorage.getItem('clubapp_deleted_anns') || '[]');
+    if (!deleted.includes(id)) deleted.push(id);
+    localStorage.setItem('clubapp_deleted_anns', JSON.stringify(deleted.slice(-50)));
+  } catch(e) {}
   navigate('announcements');
-  // Await the Supabase delete so it completes before app can close
+  // Delete from Supabase - DO NOT remove from blacklist after, leave it there
+  // so poll never re-adds it even if Supabase is slow
   try { await sb.delete('announcements', { id }); } catch(e) {}
 };
 
@@ -6275,10 +6285,15 @@ async function pollAll() {
     try {
       const annRows = await sb.select('announcements', 'order=created_at.desc');
       if (Array.isArray(annRows)) {
-        const deleted = state._deletedAnnIds || new Set();
-        // Full reconcile — rebuild from Supabase, skipping any locally-deleted IDs
+        // Load persisted deleted IDs from localStorage
+        let deletedIds = new Set();
+        try {
+          const stored = JSON.parse(localStorage.getItem('clubapp_deleted_anns') || '[]');
+          deletedIds = new Set(stored);
+        } catch(e) {}
+        // Full reconcile — rebuild from Supabase, skipping deleted IDs
         const newList = annRows
-          .filter(a => !deleted.has(a.id))
+          .filter(a => !deletedIds.has(a.id))
           .map(a => ({
             id: a.id, title: a.title, body: a.body,
             image: a.image_url || null,
