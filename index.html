@@ -449,6 +449,99 @@
     color: var(--accent);
   }
 
+  /* ── ARROW NAV SLIDER ── */
+  .arrow-slider {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .arrow-slider-card {
+    flex: 1;
+    min-width: 0;
+    background: var(--surface);
+    border-radius: 16px;
+    padding: 14px;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .arrow-slider-card:active { opacity: 0.75; }
+  .arrow-nav-btn {
+    width: 36px;
+    flex-shrink: 0;
+    background: var(--surface);
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent);
+    transition: background 0.15s;
+  }
+  .arrow-nav-btn:active { background: var(--surface2); }
+  .arrow-nav-btn:disabled { opacity: 0.25; cursor: default; }
+  .slider-counter {
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 6px;
+    letter-spacing: 0.5px;
+  }
+
+  /* ── HORIZONTAL SLIDERS ── */
+  .h-slider {
+    display: flex;
+    overflow-x: auto;
+    overflow-y: visible;
+    gap: 12px;
+    padding-bottom: 6px;
+    margin-top: 10px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x mandatory;
+  }
+  .h-slider::-webkit-scrollbar { display: none; }
+
+  .match-slide-card {
+    min-width: 260px;
+    max-width: 260px;
+    background: var(--surface);
+    border-radius: 16px;
+    padding: 14px;
+    cursor: pointer;
+    scroll-snap-align: start;
+    flex-shrink: 0;
+    transition: opacity 0.15s;
+  }
+  .match-slide-card:active { opacity: 0.75; }
+
+  .ann-slide-card {
+    min-width: 240px;
+    max-width: 240px;
+    background: var(--surface);
+    border-radius: 16px;
+    overflow: hidden;
+    cursor: pointer;
+    scroll-snap-align: start;
+    flex-shrink: 0;
+    transition: opacity 0.15s;
+  }
+  .ann-slide-card:active { opacity: 0.75; }
+
+  .ann-slide-img {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    display: block;
+    background: var(--surface2);
+  }
+
+  .ann-slide-body {
+    padding: 10px 12px 12px;
+  }
+
   /* ── HOME SCREEN ── */
   .home-content {
     padding: 20px 16px;
@@ -1475,6 +1568,8 @@ function persistClubConfig() {
 const state = {
   screen: 'splash',          // current screen
   restoringSession: true,    // shows spinner on splash until boot completes
+  matchIdx: 0,               // current index in match arrow slider
+  socialIdx: 0,              // current index in social arrow slider
   pendingSignup: null,        // set when email confirmation required
   prevScreen: null,
   user: null,                // logged in user
@@ -1852,21 +1947,20 @@ async function loadAppData(silent = false) {
 // ── Instagram cards builder (used for in-place DOM update) ──────────────
 function buildInstagramCards() {
   if (state.instagramPosts.length === 0) {
-    return '<div class="empty-state">No Instagram posts found</div>';
+    return '<div class="empty-state" style="min-width:200px;">Loading posts...</div>';
   }
   return state.instagramPosts.map(p => `
-    <div class="insta-card" onclick="window.open('${p.link}','_blank')">
-      ${p.image ? `<img class="insta-image" src="${p.image}" loading="lazy" onerror="this.style.display='none'"/>` : ''}
-      <div class="insta-body">
-        ${p.title ? `<div class="insta-title">${p.title}</div>` : ''}
-        ${p.caption && p.caption !== p.title ? `<div class="insta-caption">${p.caption}</div>` : ''}
-        <div class="insta-footer">
-          <div class="insta-date">${p.date ? new Date(p.date).toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) : ''}</div>
-          <div class="insta-handle">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor" stroke="none"/></svg>
-            View on Instagram
-          </div>
-        </div>
+    <div class="ann-slide-card" onclick="window.open('${p.link}','_blank')">
+      ${p.image
+        ? `<img class="ann-slide-img" src="${p.image}" loading="lazy" onerror="this.style.display='none'"/>`
+        : `<div style="width:100%;aspect-ratio:1/1;background:var(--surface2);display:flex;align-items:center;justify-content:center;">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.5" fill="var(--accent)" stroke="none"/></svg>
+           </div>`
+      }
+      <div class="ann-slide-body">
+        ${p.title ? `<div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${p.title}</div>` : ''}
+        ${p.caption && p.caption !== p.title ? `<div style="font-size:12px;color:var(--text-muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${p.caption}</div>` : ''}
+        <div style="font-size:11px;color:var(--text-dim);margin-top:6px;">${p.date ? new Date(p.date).toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) : ''}</div>
       </div>
     </div>`).join('');
 }
@@ -2294,6 +2388,18 @@ function navigate(screen, extra = {}) {
   if (document.activeElement) document.activeElement.blur();
   render(true);
 }
+
+function sliderNav(prefix, dir) {
+  const items = prefix === 'match'
+    ? state.events.filter(e => e.type === 'match' && isUpcoming(e.date)).sort((a,b)=>a.date>b.date?1:-1)
+    : state.events.filter(e => e.type === 'social' && isUpcoming(e.date)).sort((a,b)=>a.date>b.date?1:-1);
+  const key = prefix + 'Idx';
+  const cur = state[key] || 0;
+  const next = Math.max(0, Math.min(items.length - 1, cur + dir));
+  state[key] = next;
+  render(true);
+}
+window.sliderNav = sliderNav;
 
 function goBack() {
   if (state.screen === 'createevent') state.editingEventId = null;
@@ -2859,48 +2965,78 @@ function buildHome() {
   const u = state.user;
   const displayName = u.nickname || u.firstName;
   const isAdmin = u.role === 'Administrator' || u.role === 'Captain';
-  const nextSocial = state.events.filter(e => e.type === 'social' && isUpcoming(e.date)).sort((a,b)=>a.date>b.date?1:-1)[0];
-  const nextMatch = state.events.filter(e => e.type === 'match' && isUpcoming(e.date)).sort((a,b)=>a.date>b.date?1:-1)[0];
+  const upcomingMatches = state.events.filter(e => e.type === 'match' && isUpcoming(e.date)).sort((a,b)=>a.date>b.date?1:-1);
+  const upcomingSocials = state.events.filter(e => e.type === 'social' && isUpcoming(e.date)).sort((a,b)=>a.date>b.date?1:-1);
 
-  const myRsvpSocial = nextSocial?.rsvp?.[state.user?.id];
-  const socialCard = nextSocial ? `<div class="card" style="display:flex;flex-direction:column;gap:10px;">
-    <div style="display:flex;gap:12px;align-items:flex-start;cursor:pointer;" onclick="openEvent('${nextSocial.id}')">
-      <div style="flex:1;min-width:0;">
-        <div style="font-size:16px;font-weight:700;color:var(--text);">${nextSocial.title}</div>
-        <div style="font-size:13px;color:var(--text-muted);margin-top:4px;display:flex;align-items:center;gap:4px;">${icons.clock} ${formatDate(nextSocial.date)} at ${formatTime(nextSocial.time)}</div>
-        <div style="font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:4px;">${icons.mappin} ${nextSocial.location}</div>
-        ${nextSocial.cost > 0 ? `<div style="margin-top:4px;font-size:13px;color:var(--teal);font-weight:600;">🎟 $${nextSocial.cost} per person</div>` : ''}
+  // Arrow-nav slider builder — shows one card at a time with < > buttons
+  function buildArrowSlider(items, idPrefix, cardBuilder, emptyMsg) {
+    if (items.length === 0) return `<div class="empty-state">${emptyMsg}</div>`;
+    const idx = state[idPrefix + 'Idx'] || 0;
+    const safeIdx = Math.min(idx, items.length - 1);
+    const item = items[safeIdx];
+    const hasPrev = safeIdx > 0;
+    const hasNext = safeIdx < items.length - 1;
+    return `
+      <div class="arrow-slider">
+        <button class="arrow-nav-btn" onclick="event.stopPropagation();sliderNav('${idPrefix}',-1)" ${hasPrev ? '' : 'disabled'}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        ${cardBuilder(item)}
+        <button class="arrow-nav-btn" onclick="event.stopPropagation();sliderNav('${idPrefix}',1)" ${hasNext ? '' : 'disabled'}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
       </div>
-      ${nextSocial.image ? `<div style="width:68px;height:68px;border-radius:10px;overflow:hidden;flex-shrink:0;"><img src="${nextSocial.image}" style="width:100%;height:100%;object-fit:cover;"/></div>` : ''}
-    </div>
-    <div class="rsvp-row" onclick="event.stopPropagation()">
-      ${nextSocial.cost > 0 && myRsvpSocial === 'going'
-        ? `<div style="color:var(--green);font-size:13px;font-weight:600;padding:6px 0;">✓ Going — payment confirmed</div>`
-        : `<button class="rsvp-btn ${myRsvpSocial==='going'?'going':''}" onclick="event.stopPropagation(); doRSVP('${nextSocial.id}','going')">${nextSocial.cost > 0 ? '✓ Going 💳' : '✓ Going'}</button>
-           <button class="rsvp-btn ${myRsvpSocial==='notgoing'?'notgoing':''}" onclick="event.stopPropagation(); doRSVP('${nextSocial.id}','notgoing')">✗ No</button>
-           <button class="rsvp-btn ${myRsvpSocial==='maybe'?'maybe':''}" onclick="event.stopPropagation(); doRSVP('${nextSocial.id}','maybe')">? Maybe</button>`
+      ${items.length > 1 ? `<div class="slider-counter">${safeIdx + 1} of ${items.length}</div>` : ''}`;
+  }
+
+  // Match card builder
+  function buildMatchSlideCard(m) {
+    return `<div class="arrow-slider-card" onclick="openEvent('${m.id}')">
+      <div style="font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">${formatDate(m.date)}</div>
+      <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px;">${m.title}</div>
+      <div style="font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:4px;">${icons.clock} ${formatTime(m.time)}</div>
+      <div style="font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:4px;margin-top:3px;">${icons.mappin} ${m.location}</div>
+      ${m.grade ? `<div style="margin-top:8px;font-size:12px;background:var(--surface2);border-radius:8px;padding:4px 8px;display:inline-block;color:var(--text-muted);">${m.grade}</div>` : ''}
+    </div>`;
+  }
+
+  // Social card builder with RSVP
+  function buildSocialSlideCard(ev) {
+    const myRsvp = ev.rsvp?.[state.user?.id];
+    return `<div class="arrow-slider-card" style="display:flex;flex-direction:column;gap:8px;">
+      <div onclick="openEvent('${ev.id}')" style="cursor:pointer;">
+        <div style="font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">${formatDate(ev.date)}</div>
+        <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px;">${ev.title}</div>
+        <div style="font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:4px;">${icons.clock} ${formatTime(ev.time)}</div>
+        <div style="font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:4px;margin-top:3px;">${icons.mappin} ${ev.location}</div>
+        ${ev.cost > 0 ? `<div style="margin-top:4px;font-size:13px;color:var(--teal);font-weight:600;">🎟 $${ev.cost} per person</div>` : ''}
+      </div>
+      <div class="rsvp-row" onclick="event.stopPropagation()">
+        ${ev.cost > 0 && myRsvp === 'going'
+          ? `<div style="color:var(--green);font-size:13px;font-weight:600;padding:4px 0;">✓ Going — payment confirmed</div>`
+          : `<button class="rsvp-btn ${myRsvp==='going'?'going':''}" onclick="event.stopPropagation();doRSVP('${ev.id}','going')">${ev.cost > 0 ? '✓ Going 💳' : '✓ Going'}</button>
+             <button class="rsvp-btn ${myRsvp==='notgoing'?'notgoing':''}" onclick="event.stopPropagation();doRSVP('${ev.id}','notgoing')">✗ No</button>
+             <button class="rsvp-btn ${myRsvp==='maybe'?'maybe':''}" onclick="event.stopPropagation();doRSVP('${ev.id}','maybe')">? Maybe</button>`
+        }
+      </div>
+      ${myRsvp === 'going'    ? `<div style="color:var(--green);font-size:13px;font-weight:600;">✓ You're going!</div>` : ''}
+      ${myRsvp === 'notgoing' ? `<div style="color:var(--red);font-size:13px;font-weight:600;">✗ Not going</div>` : ''}
+      ${myRsvp === 'maybe'    ? `<div style="color:var(--orange);font-size:13px;font-weight:600;">? Maybe attending</div>` : ''}
+    </div>`;
+  }
+
+  // Announcement slider cards (up to 5, image-forward)
+  const annSlides = state.announcements.slice(0,5).map(a => `
+    <div class="ann-slide-card" onclick="navigate('announcements')">
+      ${a.image
+        ? `<img class="ann-slide-img" src="${a.image}" loading="lazy" onerror="this.style.display='none'"/>`
+        : `<div style="width:100%;aspect-ratio:1/1;background:var(--surface2);display:flex;align-items:center;justify-content:center;"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>`
       }
-    </div>
-    ${myRsvpSocial === 'going'    ? `<div style="color:var(--green);font-size:13px;font-weight:600;">✓ You're going!</div>` : ''}
-    ${myRsvpSocial === 'notgoing' ? `<div style="color:var(--red);font-size:13px;font-weight:600;">✗ Not going</div>` : ''}
-    ${myRsvpSocial === 'maybe'    ? `<div style="color:var(--orange);font-size:13px;font-weight:600;">? Maybe attending</div>` : ''}
-  </div>` : `<div class="empty-state">No upcoming social events</div>`;
-
-  const matchCard = nextMatch ? `<div class="card" onclick="openEvent('${nextMatch.id}')" style="cursor:pointer;display:flex;gap:12px;align-items:flex-start;">
-    <div style="flex:1;min-width:0;">
-      <div style="font-size:16px;font-weight:700;color:var(--text);">${nextMatch.title}</div>
-      <div style="font-size:13px;color:var(--text-muted);margin-top:4px;">${formatDate(nextMatch.date)} at ${formatTime(nextMatch.time)}</div>
-      <div style="font-size:13px;color:var(--text-muted);">${nextMatch.location}</div>
-    </div>
-    ${nextMatch.image ? `<div style="width:68px;height:68px;border-radius:10px;overflow:hidden;flex-shrink:0;"><img src="${nextMatch.image}" style="width:100%;height:100%;object-fit:cover;"/></div>` : ''}
-  </div>` : `<div class="empty-state">No upcoming matches</div>`;
-
-  const annCards = state.announcements.slice(0,2).map(a => `
-    <div class="announcement-card" onclick="navigate('announcements')">
-      ${a.image ? `<div style="width:100%;height:110px;border-radius:10px;overflow:hidden;margin-bottom:8px;"><img src="${a.image}" style="width:100%;height:100%;object-fit:cover;"/></div>` : ''}
-      <div class="ann-title">${a.title}</div>
-      <div class="ann-body">${a.body.substring(0,80)}…</div>
-      <div class="ann-date">${a.date}</div>
+      <div class="ann-slide-body">
+        <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${a.title}</div>
+        <div style="font-size:12px;color:var(--text-muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${a.body}</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:6px;">${a.date}</div>
+      </div>
     </div>`).join('');
 
   return `<div class="screen">
@@ -2912,26 +3048,34 @@ function buildHome() {
           <div class="welcome-role">${u.role}</div>
         </div>
         <div>
-          <div class="section-title">Next Match</div>
-          ${matchCard}
-        </div>
-        <div>
-          <div class="section-title">Next Social Event</div>
-          ${socialCard}
-        </div>
-        <div>
-          <div class="section-header">
-            <div class="section-title" style="margin-bottom:0">Latest Announcements</div>
-            <div style="display:flex;align-items:center;gap:10px;">
-              <div class="view-all" onclick="navigate('announcements')">View all</div>
-              ${isAdmin ? `<button onclick="navigate('createannouncement')" style="width:28px;height:28px;border-radius:50%;background:var(--accent);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;" title="Create announcement">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              </button>` : ''}
+          <div class="section-header" style="margin-bottom:0;">
+            <div class="section-title" style="margin-bottom:0;cursor:pointer;display:flex;align-items:center;gap:6px;" onclick="state.eventsTab='matches';navigate('events')">
+              Matches
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
             </div>
           </div>
-          <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px;">
-            ${annCards || '<div class="empty-state">No announcements yet</div>'}
+          ${buildArrowSlider(upcomingMatches, 'match', buildMatchSlideCard, 'No upcoming matches')}
+        </div>
+        <div>
+          <div class="section-header" style="margin-bottom:0;">
+            <div class="section-title" style="margin-bottom:0;cursor:pointer;display:flex;align-items:center;gap:6px;" onclick="state.eventsTab='social';navigate('events')">
+              Social Events
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+            </div>
           </div>
+          ${buildArrowSlider(upcomingSocials, 'social', buildSocialSlideCard, 'No upcoming social events')}
+        </div>
+        <div>
+          <div class="section-header" style="margin-bottom:0;">
+            <div class="section-title" style="margin-bottom:0;cursor:pointer;display:flex;align-items:center;gap:6px;" onclick="navigate('announcements')">
+              Latest Announcements
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+            </div>
+            ${isAdmin ? `<button onclick="navigate('createannouncement')" style="width:28px;height:28px;border-radius:50%;background:var(--accent);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;" title="Create announcement">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>` : ''}
+          </div>
+          <div class="h-slider">${annSlides || '<div class="empty-state" style="min-width:200px;">No announcements yet</div>'}</div>
         </div>
         <div>
           <div class="section-header">
@@ -2943,9 +3087,9 @@ function buildHome() {
             </div>
             <div class="view-all" onclick="window.open('https://www.instagram.com/laurimarcc/','_blank')">View profile</div>
           </div>
-          <div id="instagram-feed-container" class="instagram-feed" style="margin-top:10px;">
+          <div id="instagram-feed-container" class="h-slider" style="margin-top:10px;">
             ${state.instagramPosts.length === 0
-              ? `<div class="empty-state" style="display:flex;align-items:center;gap:8px;"><span style="opacity:0.5;">Loading posts...</span></div>`
+              ? `<div class="empty-state" style="min-width:200px;opacity:0.5;">Loading posts...</div>`
               : buildInstagramCards()
             }
           </div>
