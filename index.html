@@ -5426,10 +5426,14 @@ window.confirmDeleteAnnouncement = (id) => {
 
 window.deleteAnnouncement = async (id) => {
   state.modal = null;
-  render(true);
-  await sb.delete('announcements', { id });
+  // Remove from local state immediately BEFORE the Supabase call
   state.announcements = state.announcements.filter(a => a.id !== id);
+  // Track deleted IDs so polling never re-adds them
+  if (!state._deletedAnnIds) state._deletedAnnIds = new Set();
+  state._deletedAnnIds.add(id);
   navigate('announcements');
+  // Delete from Supabase in background
+  sb.delete('announcements', { id });
 };
 
 window.publishAnnouncement = () => {
@@ -6272,20 +6276,19 @@ async function pollAll() {
     try {
       const annRows = await sb.select('announcements', 'order=created_at.desc');
       if (Array.isArray(annRows)) {
-        const existingIds = new Set(state.announcements.map(a => a.id));
-        let changed = false;
-        annRows.forEach(a => {
-          if (!existingIds.has(a.id)) {
-            state.announcements.unshift({
-              id: a.id, title: a.title, body: a.body,
-              image: a.image_url || null,
-              date: a.created_at ? a.created_at.slice(0,10) : '',
-              author: a.author_name || 'Admin',
-              recipients: a.recipients || 'all',
-            });
-            changed = true;
-          }
-        });
+        const deleted = state._deletedAnnIds || new Set();
+        // Full reconcile — rebuild from Supabase, skipping any locally-deleted IDs
+        const newList = annRows
+          .filter(a => !deleted.has(a.id))
+          .map(a => ({
+            id: a.id, title: a.title, body: a.body,
+            image: a.image_url || null,
+            date: a.created_at ? a.created_at.slice(0,10) : '',
+            author: a.author_name || 'Admin',
+            recipients: a.recipients || 'all',
+          }));
+        const changed = JSON.stringify(newList.map(a=>a.id)) !== JSON.stringify(state.announcements.map(a=>a.id));
+        state.announcements = newList;
         if (changed && !isUserTyping()) render();
       }
     } catch(e) { console.log('Announcement poll error:', e); }
