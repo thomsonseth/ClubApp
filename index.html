@@ -2828,7 +2828,13 @@ function buildSplash() {
 // ── LOGIN ─────────────────────────────────────────────────────────────────
 function buildLogin() {
   return `<div class="screen">
-    <div style="padding-top:12px;display:flex;align-items:center;justify-content:center;">${buildLogo(66)}</div>
+    <div style="padding:12px 16px 0;display:flex;align-items:center;">
+      <button onclick="navigate('login')" style="background:var(--surface);border:none;color:var(--text);padding:6px 14px 6px 10px;border-radius:20px;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+        Back
+      </button>
+    </div>
+    <div style="padding-top:8px;display:flex;align-items:center;justify-content:center;">${buildLogo(66)}</div>
     <div class="screen-scroll">
       <div class="auth-screen">
         <div>
@@ -2863,7 +2869,13 @@ function buildLogin() {
 function buildSignup() {
   const f = state.signupForm;
   return `<div class="screen">
-    <div style="padding-top:12px;display:flex;align-items:center;justify-content:center;">${buildLogo(66)}</div>
+    <div style="padding:12px 16px 0;display:flex;align-items:center;">
+      <button onclick="navigate('login')" style="background:var(--surface);border:none;color:var(--text);padding:6px 14px 6px 10px;border-radius:20px;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+        Back
+      </button>
+    </div>
+    <div style="padding-top:8px;display:flex;align-items:center;justify-content:center;">${buildLogo(66)}</div>
     <div class="screen-scroll">
       <div class="auth-screen">
         <div>
@@ -2889,7 +2901,13 @@ function buildSignup() {
 // ── FORGOT PASSWORD ───────────────────────────────────────────────────────
 function buildForgotPassword() {
   return `<div class="screen">
-    <div style="padding-top:12px;display:flex;align-items:center;justify-content:center;">${buildLogo(66)}</div>
+    <div style="padding:12px 16px 0;display:flex;align-items:center;">
+      <button onclick="navigate('login')" style="background:var(--surface);border:none;color:var(--text);padding:6px 14px 6px 10px;border-radius:20px;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+        Back
+      </button>
+    </div>
+    <div style="padding-top:8px;display:flex;align-items:center;justify-content:center;">${buildLogo(66)}</div>
     <div class="screen-scroll">
       <div class="auth-screen">
         <div>
@@ -2911,7 +2929,13 @@ function buildForgotPassword() {
 function buildEmailConfirm() {
   const email = state.pendingSignup?.email || '';
   return `<div class="screen">
-    <div style="padding-top:12px;display:flex;align-items:center;justify-content:center;">${buildLogo(66)}</div>
+    <div style="padding:12px 16px 0;display:flex;align-items:center;">
+      <button onclick="navigate('login')" style="background:var(--surface);border:none;color:var(--text);padding:6px 14px 6px 10px;border-radius:20px;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+        Back
+      </button>
+    </div>
+    <div style="padding-top:8px;display:flex;align-items:center;justify-content:center;">${buildLogo(66)}</div>
     <div class="screen-scroll">
       <div class="auth-screen">
         <div>
@@ -2937,7 +2961,13 @@ function buildEmailConfirm() {
 function buildJoinClub() {
   const { role, joinCode, nickname } = state.joinForm;
   return `<div class="screen">
-    <div style="padding-top:12px;display:flex;align-items:center;justify-content:center;">${buildLogo(66)}</div>
+    <div style="padding:12px 16px 0;display:flex;align-items:center;">
+      <button onclick="navigate('login')" style="background:var(--surface);border:none;color:var(--text);padding:6px 14px 6px 10px;border-radius:20px;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+        Back
+      </button>
+    </div>
+    <div style="padding-top:8px;display:flex;align-items:center;justify-content:center;">${buildLogo(66)}</div>
     <div class="screen-scroll">
       <div class="join-club-screen">
         <div style="text-align:center">
@@ -4931,16 +4961,54 @@ window.setCEImageTab = (tab) => {
   render();
 };
 
+// ── Image crop & resize helper ───────────────────────────────────────────
+// Crops image to the given aspect ratio (centred) and resizes to maxW x maxH
+function cropAndResizeImage(file, aspectRatio, maxW, maxH, callback) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      // Calculate crop dimensions (centre crop to target aspect ratio)
+      let srcW = img.width, srcH = img.height;
+      const srcAspect = srcW / srcH;
+      let cropW, cropH, cropX, cropY;
+      if (srcAspect > aspectRatio) {
+        // Image is wider than target — crop sides
+        cropH = srcH;
+        cropW = srcH * aspectRatio;
+        cropX = (srcW - cropW) / 2;
+        cropY = 0;
+      } else {
+        // Image is taller than target — crop top/bottom
+        cropW = srcW;
+        cropH = srcW / aspectRatio;
+        cropX = 0;
+        cropY = (srcH - cropH) / 2;
+      }
+      // Scale to output size
+      const outW = Math.min(cropW, maxW);
+      const outH = outW / aspectRatio;
+      canvas.width = outW;
+      canvas.height = outH;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, outW, outH);
+      callback(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
 window.handleEventImageUpload = (event) => {
   const file = event.target.files[0];
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    state.createEventForm.image   = e.target.result;
-    state.createEventForm.aiImage = null; // clear AI image if user uploads
+  // 16:9 crop for event banner images
+  cropAndResizeImage(file, 16/9, 1200, 675, (dataUrl) => {
+    state.createEventForm.image   = dataUrl;
+    state.createEventForm.aiImage = null;
     render();
-  };
-  reader.readAsDataURL(file);
+  });
 };
 
 window.generateEventImage = async () => {
@@ -5407,12 +5475,11 @@ window.saveAnnField = (key, value) => {
 window.handleAnnImageUpload = (event) => {
   const file = event.target.files[0];
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    state.createAnnouncementForm.image = e.target.result;
+  // 1:1 square crop for announcement images (matches card display)
+  cropAndResizeImage(file, 1, 800, 800, (dataUrl) => {
+    state.createAnnouncementForm.image = dataUrl;
     render();
-  };
-  reader.readAsDataURL(file);
+  });
 };
 
 window.openAnnouncement = (id) => {
