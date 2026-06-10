@@ -538,7 +538,7 @@
   .ann-slide-img {
     width: 100%;
     aspect-ratio: 1 / 1;
-    object-fit: cover;
+    object-fit: contain;
     display: block;
     background: var(--surface2);
   }
@@ -3160,7 +3160,7 @@ function buildAnnouncements() {
   const isAdmin = state.user?.role === 'Administrator' || state.user?.role === 'Captain';
   const cards = state.announcements.map(a => `
     <div class="announcement-card" onclick="openAnnouncement('${a.id}')" style="cursor:pointer;">
-      ${a.image ? `<div style="width:100%;height:140px;border-radius:12px;overflow:hidden;margin-bottom:10px;"><img src="${a.image}" style="width:100%;height:100%;object-fit:cover;"/></div>` : ''}
+      ${a.image ? `<div style="width:100%;border-radius:12px;overflow:hidden;margin-bottom:10px;"><img src="${a.image}" style="width:100%;height:auto;display:block;"/></div>` : ''}
       <div class="ann-title">${a.title}</div>
       <div class="ann-body">${a.body}</div>
       <div class="ann-date">Posted ${a.date} by ${a.author}</div>
@@ -3216,9 +3216,9 @@ function buildCreateAnnouncement() {
   const f = state.createAnnouncementForm;
 
   const imageSection = f.image
-    ? `<div style="position:relative;width:100%;height:150px;border-radius:14px;overflow:hidden;">
-        <img src="${f.image}" style="width:100%;height:100%;object-fit:cover;"/>
-        <div style="position:absolute;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;gap:6px;color:white;font-size:13px;font-weight:600;">
+    ? `<div style="position:relative;width:100%;border-radius:14px;overflow:hidden;">
+        <img src="${f.image}" style="width:100%;height:auto;display:block;border-radius:14px;"/>
+        <div style="position:absolute;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;gap:6px;color:white;font-size:13px;font-weight:600;border-radius:14px;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
           Change image
         </div>
