@@ -1022,7 +1022,7 @@
 
   .event-image-upload {
     width: 100%;
-    height: 160px;
+    min-height: 120px;
     border-radius: 16px;
     border: 2px dashed var(--border);
     background: var(--surface);
@@ -1037,7 +1037,8 @@
     transition: border-color 0.2s;
   }
   .event-image-upload:hover { border-color: var(--accent); }
-  .event-image-upload img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  /* When image present, let it size naturally */
+  .event-image-upload img { width: 100%; height: auto; display: block; object-fit: contain; }
   .event-image-upload .img-overlay {
     position: absolute; inset: 0;
     background: rgba(0,0,0,0.45);
@@ -3043,15 +3044,15 @@ function buildHome() {
 
   // Match card builder
   function buildMatchSlideCard(m) {
-    return `<div class="arrow-slider-card" onclick="openEvent('${m.id}')">
-      ${m.image ? `<img src="${m.image}" style="width:100%;height:160px;object-fit:cover;display:block;" loading="lazy" onerror="this.style.display='none'"/>` : ''}
-      <div style="padding:14px;">
+    return `<div class="arrow-slider-card" onclick="openEvent('${m.id}')" style="display:flex;align-items:stretch;">
+      <div style="flex:1;min-width:0;padding:14px;">
         <div style="font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">${formatDate(m.date)}</div>
         <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px;">${m.title}</div>
         <div style="font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:4px;">${icons.clock} ${formatTime(m.time)}</div>
         <div style="font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:4px;margin-top:3px;">${icons.mappin} ${m.location}</div>
         ${m.grade ? `<div style="margin-top:8px;font-size:12px;background:var(--surface2);border-radius:8px;padding:4px 8px;display:inline-block;color:var(--text-muted);">${m.grade}</div>` : ''}
       </div>
+      ${m.image ? `<div style="width:90px;min-width:90px;height:90px;flex-shrink:0;border-radius:10px;overflow:hidden;margin:12px 12px 12px 0;"><img src="${m.image}" style="width:100%;height:100%;object-fit:cover;object-position:center top;display:block;"/></div>` : ''}
     </div>`;
   }
 
@@ -3059,13 +3060,15 @@ function buildHome() {
   function buildSocialSlideCard(ev) {
     const myRsvp = ev.rsvp?.[state.user?.id];
     return `<div class="arrow-slider-card" style="display:flex;flex-direction:column;gap:0;">
-      ${ev.image ? `<img src="${ev.image}" style="width:100%;height:160px;object-fit:cover;display:block;" loading="lazy" onerror="this.style.display='none'"/>` : ''}
-      <div onclick="openEvent('${ev.id}')" style="cursor:pointer;padding:14px;">
-        <div style="font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">${formatDate(ev.date)}</div>
-        <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px;">${ev.title}</div>
-        <div style="font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:4px;">${icons.clock} ${formatTime(ev.time)}</div>
-        <div style="font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:4px;margin-top:3px;">${icons.mappin} ${ev.location}</div>
-        ${ev.cost > 0 ? `<div style="margin-top:4px;font-size:13px;color:var(--teal);font-weight:600;">🎟 $${ev.cost} per person</div>` : ''}
+      <div style="display:flex;align-items:stretch;">
+        <div style="flex:1;min-width:0;padding:14px;cursor:pointer;" onclick="openEvent('${ev.id}')">
+          <div style="font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">${formatDate(ev.date)}</div>
+          <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px;">${ev.title}</div>
+          <div style="font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:4px;">${icons.clock} ${formatTime(ev.time)}</div>
+          <div style="font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:4px;margin-top:3px;">${icons.mappin} ${ev.location}</div>
+          ${ev.cost > 0 ? `<div style="margin-top:4px;font-size:13px;color:var(--teal);font-weight:600;">🎟 $${ev.cost} per person</div>` : ''}
+        </div>
+        ${ev.image ? `<div style="width:90px;min-width:90px;height:90px;flex-shrink:0;border-radius:10px;overflow:hidden;margin:12px 12px 12px 0;"><img src="${ev.image}" style="width:100%;height:100%;object-fit:cover;object-position:center top;display:block;"/></div>` : ''}
       </div>
       <div class="rsvp-row" onclick="event.stopPropagation()" style="padding:0 14px 14px;">
         ${ev.cost > 0 && myRsvp === 'going'
@@ -3075,9 +3078,9 @@ function buildHome() {
              <button class="rsvp-btn ${myRsvp==='maybe'?'maybe':''}" onclick="event.stopPropagation();doRSVP('${ev.id}','maybe')">? Maybe</button>`
         }
       </div>
-      ${myRsvp === 'going'    ? `<div style="color:var(--green);font-size:13px;font-weight:600;">✓ You're going!</div>` : ''}
-      ${myRsvp === 'notgoing' ? `<div style="color:var(--red);font-size:13px;font-weight:600;">✗ Not going</div>` : ''}
-      ${myRsvp === 'maybe'    ? `<div style="color:var(--orange);font-size:13px;font-weight:600;">? Maybe attending</div>` : ''}
+      ${myRsvp === 'going'    ? `<div style="color:var(--green);font-size:13px;font-weight:600;padding:0 14px 10px;">✓ You're going!</div>` : ''}
+      ${myRsvp === 'notgoing' ? `<div style="color:var(--red);font-size:13px;font-weight:600;padding:0 14px 10px;">✗ Not going</div>` : ''}
+      ${myRsvp === 'maybe'    ? `<div style="color:var(--orange);font-size:13px;font-weight:600;padding:0 14px 10px;">? Maybe attending</div>` : ''}
     </div>`;
   }
 
@@ -3295,7 +3298,7 @@ function buildEventCard(ev, isAdmin) {
 
   const rightEl = isTraining
     ? `<div class="bat-icon" style="width:36px;height:36px;border-radius:8px;background:var(--surface2);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--accent);">${icons.cricketBat}</div>`
-    : (ev.image ? `<div style="width:64px;height:64px;border-radius:10px;overflow:hidden;flex-shrink:0;align-self:flex-start;"><img src="${ev.image}" style="width:100%;height:100%;object-fit:cover;"/></div>` : '');
+    : (ev.image ? `<div style="width:90px;min-width:90px;height:90px;border-radius:12px;overflow:hidden;flex-shrink:0;"><img src="${ev.image}" style="width:100%;height:100%;object-fit:cover;object-position:center top;display:block;"/></div>` : '');
 
   const paidAndGoing = ev.cost > 0 && myRsvp === 'going';
   const rsvpSection = ev.type === 'social' ? `
@@ -3482,7 +3485,7 @@ function buildEventDetail() {
     ${buildTopBanner({ title: '', showBack: true })}
     <div class="screen-scroll">
       <div class="event-detail-content">
-        ${ev.image ? `<div style="width:100%;height:180px;border-radius:16px;overflow:hidden;"><img src="${ev.image}" style="width:100%;height:100%;object-fit:cover;"/></div>` : ''}
+        ${ev.image ? `<div style="width:100%;border-radius:16px;overflow:hidden;"><img src="${ev.image}" style="width:100%;height:auto;display:block;"/></div>` : ''}
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <span class="event-type-badge">${ev.type}</span>
           ${isAdmin ? `<button class="btn-secondary" style="width:auto;padding:6px 16px;font-size:13px;" onclick="openEditEvent('${ev.id}')">Edit Event</button>` : ''}
@@ -5003,8 +5006,8 @@ function cropAndResizeImage(file, aspectRatio, maxW, maxH, callback) {
 window.handleEventImageUpload = (event) => {
   const file = event.target.files[0];
   if (!file) return;
-  // 16:9 crop for event banner images
-  cropAndResizeImage(file, 16/9, 1200, 675, (dataUrl) => {
+  // 1:1 square crop for event images (matches card display)
+  cropAndResizeImage(file, 1, 800, 800, (dataUrl) => {
     state.createEventForm.image   = dataUrl;
     state.createEventForm.aiImage = null;
     render();
