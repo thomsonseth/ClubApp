@@ -3149,8 +3149,8 @@ function buildAnnouncementDetail() {
         <div style="font-size:15px;color:var(--text);line-height:1.6;white-space:pre-wrap;">${a.body}</div>
         ${isAdmin ? `
         <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px;">
-          <button class="btn-secondary" onclick="editAnnouncement('${a.id}')" style="display:flex;align-items:center;justify-content:center;gap:6px;">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          <button class="btn-secondary" onclick="editAnnouncement('${a.id}')" style="display:flex;align-items:center;justify-content:center;gap:6px;color:var(--accent);border-color:var(--accent);">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             Edit
           </button>
           <button class="btn-danger" onclick="confirmDeleteAnnouncement('${a.id}')" style="display:flex;align-items:center;justify-content:center;gap:6px;">
@@ -4432,7 +4432,10 @@ function buildClubInfo() {
               </div>`).join('')}
             </div>
           </div>
-          ${isAdmin ? `<button class="btn-secondary" onclick="startClubInfoEdit()">✏️ Edit Club Info</button>` : ''}
+          ${isAdmin ? `<button class="btn-secondary" onclick="startClubInfoEdit()" style="display:flex;align-items:center;justify-content:center;gap:6px;color:var(--accent);border-color:var(--accent);">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+  Edit Club Info
+</button>` : ''}
         </div>
       </div>
     </div>`;
@@ -4735,6 +4738,18 @@ function buildModal() {
           </div>
         `}
         <button class="btn-secondary" onclick="closeModal(null, true)" style="margin-top:4px;">Close</button>
+      </div>
+    </div>`;
+  }
+  if (m.type === 'deleteUser') {
+    return `<div class="modal-overlay" onclick="closeModal()">
+      <div class="modal-box" onclick="event.stopPropagation()">
+        <div class="modal-title">Delete User</div>
+        <div style="font-size:15px;color:var(--text-muted);margin:12px 0 20px;">Are you sure you want to delete <strong style="color:var(--text);">${m.name}</strong>? This will permanently remove their account and cannot be undone.</div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <button class="btn-danger" onclick="confirmDeleteUser('${m.id}')">Delete User</button>
+          <button class="btn-secondary" onclick="closeModal(null,true)">Cancel</button>
+        </div>
       </div>
     </div>`;
   }
@@ -5566,6 +5581,14 @@ window.saveUserDetail = (id) => {
 };
 
 window.deleteUser = (id) => {
+  const u = state.users.find(u => u.id === id);
+  if (!u) return;
+  state.modal = { type: 'deleteUser', id, name: `${u.firstName} ${u.lastName}` };
+  render(true);
+};
+
+window.confirmDeleteUser = (id) => {
+  state.modal = null;
   const idx = state.users.findIndex(u => u.id === id);
   if (idx >= 0) state.users.splice(idx, 1);
   sb.delete('profiles', { id });
