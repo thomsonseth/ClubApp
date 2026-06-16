@@ -6338,10 +6338,21 @@ const ONESIGNAL_WORKER_URL = 'https://onesignal-proxy.thomsonseth.workers.dev';
 // Request permission from the user after they log in
 async function requestNotificationPermission() {
   try {
-    if (!window.OneSignal) return;
+    // Wait for OneSignal SDK to finish loading (up to 8 seconds)
+    let attempts = 0;
+    while (!window.OneSignal && attempts < 16) {
+      await new Promise(r => setTimeout(r, 500));
+      attempts++;
+    }
+    if (!window.OneSignal) {
+      console.log('OneSignal SDK never became available');
+      return;
+    }
     const permission = await window.OneSignal.Notifications.permission;
+    console.log('Current notification permission:', permission);
     if (!permission) {
-      await window.OneSignal.Notifications.requestPermission();
+      const result = await window.OneSignal.Notifications.requestPermission();
+      console.log('Permission request result:', result);
     }
   } catch(e) {
     console.log('Notification permission request failed:', e);
