@@ -1512,6 +1512,7 @@
         appId: "0a0d5972-3d46-4a19-a343-e0ae3222aa9b",
         notifyButton: { enable: false },
         allowLocalhostAsSecureOrigin: true,
+        serviceWorkerPath: '/OneSignalSDKWorker.js',
       });
     });
   </script>
@@ -1550,6 +1551,7 @@ const CLUB_CONFIG = {
   ],
   estYear: '2017',
   poweredBy: 'Lucidigi',
+  appUrl: 'https://generic-generals.netlify.app',
 };
 
 // Apply accent colour to CSS variables at runtime
@@ -2576,7 +2578,7 @@ function handleCreateEvent() {
         sendPushNotification(
           `Event Updated: ${ev.title}`,
           (ev.description || `${formatDate(ev.date)}${ev.time ? ' at ' + formatTime(ev.time) : ''}${ev.location ? ' · ' + ev.location : ''}`).substring(0, 200),
-          `https://laurimar-power.netlify.app/#screen=eventdetail&id=${ev.id}`,
+          `${CLUB_CONFIG.appUrl}/#screen=eventdetail&id=${ev.id}`,
         );
       }
     }
@@ -2625,7 +2627,7 @@ function handleCreateEvent() {
       sendPushNotification(
         `New Event: ${newEv.title}`,
         (newEv.description || `${formatDate(newEv.date)}${newEv.time ? ' at ' + formatTime(newEv.time) : ''}${newEv.location ? ' · ' + newEv.location : ''}`).substring(0, 200),
-        `https://laurimar-power.netlify.app/#screen=eventdetail&id=${newEv.id}`,
+        `${CLUB_CONFIG.appUrl}/#screen=eventdetail&id=${newEv.id}`,
       );
     }
 
@@ -2680,7 +2682,7 @@ function sendChatMessage() {
       sendPushNotificationToUsers(
         `Message from ${senderName}`,
         text.substring(0, 200),
-        `https://laurimar-power.netlify.app/#screen=chat&id=${thread.id}`,
+        `${CLUB_CONFIG.appUrl}/#screen=chat&id=${thread.id}`,
         recipients,
       );
     }
@@ -2726,7 +2728,7 @@ function publishTeamSelection() {
     sendPushNotification(
       `Team Selected: ${ev.title}`,
       `The team for ${formatDate(ev.date)} has been announced. Check the app to see if you're playing.`,
-      `https://laurimar-power.netlify.app/#screen=eventdetail&id=${state.activeEventId}`,
+      `${CLUB_CONFIG.appUrl}/#screen=eventdetail&id=${state.activeEventId}`,
     );
   }
   state.selectedPlayers = [];
@@ -5680,7 +5682,7 @@ window.publishAnnouncement = () => {
         sendPushNotification(
           `Announcement: ${title}`,
           body.substring(0, 200),
-          annId ? `https://laurimar-power.netlify.app/#screen=announcements&id=${annId}` : 'https://laurimar-power.netlify.app/#screen=announcements',
+          annId ? `${CLUB_CONFIG.appUrl}/#screen=announcements&id=${annId}` : `${CLUB_CONFIG.appUrl}/#screen=announcements`,
         );
       }
     });
@@ -5980,7 +5982,7 @@ window.amendSession = (id) => {
     sendPushNotification(
       `Training Updated: ${formatDate(ev.date)}`,
       `${ev.time}–${ev.finishTime} at ${ev.location}`,
-      `https://laurimar-power.netlify.app/#screen=eventdetail&id=${id}`,
+      `${CLUB_CONFIG.appUrl}/#screen=eventdetail&id=${id}`,
     );
   }
   showToast(notify ? 'Session updated — members notified!' : 'Session updated!');
@@ -6000,7 +6002,7 @@ window.cancelSession = (id) => {
     sendPushNotification(
       `Training Cancelled: ${formatDate(ev.date)}`,
       note || 'This training session has been cancelled.',
-      `https://laurimar-power.netlify.app/#screen=eventdetail&id=${id}`,
+      `${CLUB_CONFIG.appUrl}/#screen=eventdetail&id=${id}`,
     );
   }
   showToast(notify ? 'Session cancelled — members notified!' : 'Session cancelled.');
@@ -6413,6 +6415,9 @@ let _lastEventPoll = 0;
 let _lastAnnPoll = 0;
 let _lastInstagramPoll = 0;
 let _lastFacebookPoll = 0;
+let _lastReminderCheck = 0;
+// Tracks which reminder keys have already fired this session: Set of strings like `${eventId}_oneDayBefore`
+const _firedReminders = new Set();
 
 async function pollAll() {
   if (!state.user || !sb._token) return;
@@ -6491,6 +6496,63 @@ async function pollAll() {
     } catch(e) { console.log('Announcement poll error:', e); }
   }
 
+  // ── Event reminder notifications (check every 5 minutes) ──────────────
+  if (now - _lastReminderCheck > 300000) {
+    _lastReminderCheck = now;
+    try {
+      const nowMs = Date.now();
+      state.events.forEach(ev => {
+        if (!ev.date || ev.cancelled) return;
+        // Build event datetime in ms (use noon if no time set, to avoid timezone edge cases)
+        const timeStr = ev.time || '12:00';
+        const evMs = new Date(`${ev.date}T${timeStr}`).getTime();
+        if (isNaN(evMs) || evMs < nowMs) return; // past events — skip
+
+        const msUntil = evMs - nowMs;
+        const hoursUntil = msUntil / (1000 * 60 * 60);
+        const notif = ev.notifications || {};
+        const label = ev.title || 'Upcoming event';
+        const dateStr = formatDate(ev.date);
+        const timeLabel = ev.time ? ` at ${formatTime(ev.time)}` : '';
+        const locationLabel = ev.location ? ` · ${ev.location}` : '';
+        const body = `${dateStr}${timeLabel}${locationLabel}`;
+        const url = `${CLUB_CONFIG.appUrl}/#screen=eventdetail&id=${ev.id}`;
+
+        // 1 week before (168h window: between 169h and 167h out)
+        if (notif.oneWeekBefore && hoursUntil <= 169 && hoursUntil >= 167) {
+          const key = `${ev.id}_oneWeekBefore`;
+          if (!_firedReminders.has(key)) {
+            _firedReminders.add(key);
+            sendPushNotification(`Reminder: ${label} in 1 week`, body, url);
+          }
+        }
+        // 1 day before (24h window: between 25h and 23h out)
+        if (notif.oneDayBefore && hoursUntil <= 25 && hoursUntil >= 23) {
+          const key = `${ev.id}_oneDayBefore`;
+          if (!_firedReminders.has(key)) {
+            _firedReminders.add(key);
+            sendPushNotification(`Tomorrow: ${label}`, body, url);
+          }
+        }
+        // Training schedule reminder (dayBefore = same as oneDayBefore logic)
+        if (ev.fromSchedule && ev.reminder === 'dayBefore' && hoursUntil <= 25 && hoursUntil >= 23) {
+          const key = `${ev.id}_trainingDayBefore`;
+          if (!_firedReminders.has(key)) {
+            _firedReminders.add(key);
+            sendPushNotification(`Training tomorrow`, body, url);
+          }
+        }
+        if (ev.fromSchedule && ev.reminder === 'weekBefore' && hoursUntil <= 169 && hoursUntil >= 167) {
+          const key = `${ev.id}_trainingWeekBefore`;
+          if (!_firedReminders.has(key)) {
+            _firedReminders.add(key);
+            sendPushNotification(`Training in 1 week`, body, url);
+          }
+        }
+      });
+    } catch(e) { console.log('Reminder check error:', e); }
+  }
+
   // ── Poll Facebook feed every 5 minutes ───────────────────────────────
   if (now - _lastFacebookPoll > 300000) {
     _lastFacebookPoll = now;
@@ -6499,8 +6561,8 @@ async function pollAll() {
     if (state.facebookPosts.length > 0 && state.facebookPosts[0]?.link !== prevFirstFb && prevFirstFb !== '') {
       const newFbPost = state.facebookPosts[0];
       sendPushNotification(
-        '📘 New post from Laurimar Cricket Club',
-        newFbPost.title || 'Check out the latest from Laurimar Cricket Club',
+        `New post from ${CLUB_CONFIG.clubShortName}`,
+        newFbPost.title || `Check out the latest from ${CLUB_CONFIG.clubShortName}`,
         newFbPost.link
       );
     }
@@ -6520,8 +6582,8 @@ async function pollAll() {
     if (state.instagramPosts.length > 0 && state.instagramPosts[0]?.link !== prevFirst && prevFirst !== '') {
       const newPost = state.instagramPosts[0];
       sendPushNotification(
-        '📸 New post from @laurimarcc',
-        newPost.title || 'Check out the latest from Laurimar Cricket Club',
+        `New post from ${CLUB_CONFIG.clubShortName}`,
+        newPost.title || `Check out the latest from ${CLUB_CONFIG.clubShortName}`,
         newPost.link
       );
     }
@@ -6595,12 +6657,15 @@ async function pollAll() {
       if (newMsgFrom && newMsgThread) {
         const sender = state.users.find(u => u.id === newMsgFrom);
         const senderName = sender ? (sender.nickname || sender.firstName) : 'Someone';
-        const threadName = newMsgThread.isGroup ? (newMsgThread.name || 'Group Chat') : senderName;
-        sendPushNotification(
-          `Message from ${senderName}`,
-          newMsgText.substring(0, 200),
-          `https://laurimar-power.netlify.app/#screen=chat&id=${newMsgThread.id}`,
-        );
+        const recipients = newMsgThread.participants.filter(pid => pid !== newMsgFrom);
+        if (recipients.length > 0) {
+          sendPushNotificationToUsers(
+            `Message from ${senderName}`,
+            newMsgText.substring(0, 200),
+            `${CLUB_CONFIG.appUrl}/#screen=chat&id=${newMsgThread.id}`,
+            recipients,
+          );
+        }
       }
       // Only re-render if user isn't actively typing
       if (!isUserTyping()) render();
