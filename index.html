@@ -1609,7 +1609,7 @@ const state = {
   instagramLoading: false,  // feed loading state
   loginForm: { email: '', password: '' },
   signupForm: { firstName: '', lastName: '', mobile: '', email: '', password: '', confirm: '' },
-  joinForm: { nickname: '', role: 'player', joinCode: '' },
+  joinForm: { nickname: '', role: 'player', joinCode: '', loading: false },
   feedbackForm: { name: '', email: '', message: '' },
   createAnnouncementForm: {
     recipients: 'all',
@@ -1712,6 +1712,24 @@ const sb = {
       method: 'POST',
       headers: { 'apikey': SUPABASE_ANON, 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+    return r.json();
+  },
+
+  async auth_recover(email) {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/recover`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_ANON, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    return r.ok;
+  },
+
+  async auth_updatePassword(newPassword) {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      method: 'PUT',
+      headers: sb._h(),
+      body: JSON.stringify({ password: newPassword }),
     });
     return r.json();
   },
@@ -1915,10 +1933,11 @@ async function loadAppData(silent = false) {
         recipients: a.recipients || 'all',
       })) : [];
 
-    // Threads + messages
+    // Threads + messages — RLS ensures only participant threads are returned
     const threads = await sb.select('threads', 'order=created_at.asc');
     if (Array.isArray(threads) && threads.length > 0) {
-      const msgs = await sb.select('messages', 'order=created_at.asc');
+      const threadIds = threads.map(t => `"${t.id}"`).join(',');
+      const msgs = await sb.select('messages', `thread_id=in.(${threadIds})&order=created_at.asc`);
       state.messages = threads.map(t => {
         const threadMsgs = Array.isArray(msgs)
           ? msgs.filter(m => m.thread_id === t.id).map(m => ({
@@ -2169,8 +2188,33 @@ async function handleLogin() {
   // Load profile
   const profiles = await sb.select('profiles', `id=eq.${data.user.id}`);
   if (!Array.isArray(profiles) || profiles.length === 0) {
-    state.error = 'Profile not found. Please contact your administrator.';
-    state.loading = false; render(); return;
+    // No profile yet — user confirmed email but never completed Join Club
+    // Create a basic profile and send them to complete it
+    await sb.insert('profiles', {
+      id: data.user.id,
+      first_name: data.user.user_metadata?.first_name || '',
+      last_name: data.user.user_metadata?.last_name || '',
+      email: data.user.email,
+      mobile: '',
+      nickname: '',
+      role: 'Player',
+      avatar_url: null,
+    });
+    state.user = {
+      id: data.user.id,
+      email: data.user.email,
+      firstName: data.user.user_metadata?.first_name || '',
+      lastName: data.user.user_metadata?.last_name || '',
+      nickname: '', mobile: '', role: 'Player', avatar: null,
+    };
+    state.loading = false;
+    await loadAppData();
+    startPolling();
+    startTokenRefresh();
+    if (window.OneSignal) window.OneSignal.login(state.user.id).catch(() => {});
+    navigate('joinclub');
+    render(true);
+    return;
   }
 
   state.user = profileToUser(profiles[0]);
@@ -2226,7 +2270,9 @@ async function handleSignup() {
       mobile: f.mobile || '',
       userId: data.user.id,
     };
-    render(); return;
+    render();
+    startEmailConfirmPolling();
+    return;
   }
 
   sb._token = data.access_token || SUPABASE_ANON;
@@ -2269,7 +2315,11 @@ async function handleSignup() {
 // ── AUTH: Join club (set role + nickname after signup) ────────────────────
 async function handleJoin() {
   if (!state.user) return;
+  if (state.joinForm.loading) return;
   const { nickname, role, joinCode, avatarPreview } = state.joinForm;
+
+  state.joinForm.loading = true;
+  render(true);
 
   let finalRole = role === 'player' ? 'Player' : 'Supporter';
   if (joinCode === 'ADMIN2025')   finalRole = 'Administrator';
@@ -2296,8 +2346,9 @@ async function handleJoin() {
   if (u) Object.assign(u, state.user);
 
   await loadAppData();
-  navigate('home');
+  state.joinForm.loading = false;
   state.activeTab = 'home';
+  navigate('home');
   startPolling();
   if (window.OneSignal) window.OneSignal.login(state.user.id).catch(() => {});
   render();
@@ -2802,6 +2853,7 @@ function buildScreen() {
   if (s === 'signup') return buildSignup();
   if (s === 'joinclub') return buildJoinClub();
   if (s === 'forgotpassword') return buildForgotPassword();
+  if (s === 'setnewpassword') return buildSetNewPassword();
   if (s === 'emailconfirm') return buildEmailConfirm();
 
   // Screens with bottom nav
@@ -2975,7 +3027,7 @@ function buildSignup() {
 
 // ── FORGOT PASSWORD ───────────────────────────────────────────────────────
 function buildForgotPassword() {
-  return `<div class="screen">
+  return `<div class="screen" id="forgot-password-screen">
     <div style="padding:12px 16px 0;display:flex;align-items:center;">
       <button onclick="navigate('login')" style="background:var(--surface);border:none;color:var(--text);padding:6px 14px 6px 10px;border-radius:20px;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:4px;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
@@ -2989,7 +3041,7 @@ function buildForgotPassword() {
           <div class="auth-heading">Reset password</div>
           <div class="auth-subheading">We'll send you a link to reset your password</div>
         </div>
-        <div class="input-group"><label class="input-label">Email</label><input class="input-field" type="email" placeholder="Enter your email" id="fp-email"/></div>
+        <div class="input-group"><label class="input-label">Email</label><input class="input-field" id="reset-email" type="email" placeholder="Enter your email" id="fp-email"/></div>
         <button class="btn-primary" onclick="showResetConfirm()">Send reset link</button>
         <div class="auth-link" onclick="navigate('login')">Back to login</div>
         <div id="reset-confirm" style="display:none;text-align:center;color:var(--teal);font-size:15px;padding:16px;background:rgba(78,205,196,0.1);border-radius:12px;">
@@ -3000,12 +3052,37 @@ function buildForgotPassword() {
   </div>`;
 }
 
+// ── SET NEW PASSWORD SCREEN ──────────────────────────────────────────────
+function buildSetNewPassword() {
+  return `<div class="screen" id="set-password-screen">
+    <div style="padding-top:8px;display:flex;align-items:center;justify-content:center;">${buildLogo(66)}</div>
+    <div class="screen-scroll">
+      <div class="auth-screen">
+        <div>
+          <div class="auth-heading">Set new password</div>
+          <div class="auth-subheading">Choose a new password for your account</div>
+        </div>
+        ${state.error ? `<div class="error-msg">${state.error}</div>` : ''}
+        <div class="input-group">
+          <label class="input-label">New password</label>
+          <input class="input-field" id="new-password" type="password" placeholder="At least 6 characters" autocomplete="new-password"/>
+        </div>
+        <div class="input-group">
+          <label class="input-label">Confirm new password</label>
+          <input class="input-field" id="confirm-password" type="password" placeholder="Repeat your new password" autocomplete="new-password"/>
+        </div>
+        <button class="btn-primary" onclick="handleSetNewPassword()">Set new password</button>
+      </div>
+    </div>
+  </div>`;
+}
+
 // ── EMAIL CONFIRMATION SCREEN ─────────────────────────────────────────────
 function buildEmailConfirm() {
   const email = state.pendingSignup?.email || '';
   return `<div class="screen">
     <div style="padding:12px 16px 0;display:flex;align-items:center;">
-      <button onclick="navigate('login')" style="background:var(--surface);border:none;color:var(--text);padding:6px 14px 6px 10px;border-radius:20px;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+      <button onclick="cancelEmailConfirm()" style="background:var(--surface);border:none;color:var(--text);padding:6px 14px 6px 10px;border-radius:20px;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:4px;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
         Back
       </button>
@@ -3017,15 +3094,18 @@ function buildEmailConfirm() {
           <div class="auth-heading">Check your email</div>
           <div class="auth-subheading">We sent a confirmation link to <strong style="color:var(--accent)">${email}</strong></div>
         </div>
-        <div style="background:var(--surface);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:12px;">
+        <div style="background:var(--surface);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:12px;text-align:center;">
           <div style="font-size:15px;color:var(--text);line-height:1.6;">
-            1. Open the email from Supabase<br/>
-            2. Click the confirmation link<br/>
-            3. Come back here and tap below
+            1. Open the email from ${CLUB_CONFIG.clubShortName}<br/>
+            2. Tap the confirmation link<br/>
+            3. This screen will update automatically
+          </div>
+          <div style="display:flex;align-items:center;justify-content:center;gap:10px;padding-top:4px;">
+            <div style="width:8px;height:8px;border-radius:50%;background:var(--accent);opacity:0.8;"></div>
+            <div style="font-size:13px;color:var(--text-dim);">Waiting for confirmation…</div>
           </div>
         </div>
-        <button class="btn-primary" onclick="completeSignupAfterConfirm()">I've confirmed my email &#x2192;</button>
-        <div class="auth-link" onclick="navigate('signup')">&#x2190; Back to sign up</div>
+        <div class="auth-link" onclick="cancelEmailConfirm()">&#x2190; Back to sign up</div>
         ${state.error ? `<div class="error-msg">${state.error}</div>` : ''}
       </div>
     </div>
@@ -3037,7 +3117,7 @@ function buildJoinClub() {
   const { role, joinCode, nickname } = state.joinForm;
   return `<div class="screen">
     <div style="padding:12px 16px 0;display:flex;align-items:center;">
-      <button onclick="navigate('login')" style="background:var(--surface);border:none;color:var(--text);padding:6px 14px 6px 10px;border-radius:20px;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+      <button onclick="navigate('signup')" style="background:var(--surface);border:none;color:var(--text);padding:6px 14px 6px 10px;border-radius:20px;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:4px;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
         Back
       </button>
@@ -3078,7 +3158,9 @@ function buildJoinClub() {
             <div style="font-size:12px;color:var(--text-dim);">Enter your code to join as Administrator or Captain of ${CLUB_CONFIG.clubShortName}</div>
           </div>` : ''}
         </div>
-        <button class="btn-primary" style="width:100%" onclick="doJoin()">Join Club</button>
+        <button class="btn-primary" style="width:100%" onclick="doJoin()" ${state.joinForm.loading ? 'disabled' : ''}>
+          ${state.joinForm.loading ? 'Joining…' : 'Join Club'}
+        </button>
       </div>
     </div>
   </div>`;
@@ -4950,6 +5032,64 @@ window.doSignup = () => {
   handleSignup();
 };
 
+let _emailConfirmInterval = null;
+
+function startEmailConfirmPolling() {
+  if (_emailConfirmInterval) return;
+  _emailConfirmInterval = setInterval(async () => {
+    if (state.screen !== 'emailconfirm') {
+      clearInterval(_emailConfirmInterval);
+      _emailConfirmInterval = null;
+      return;
+    }
+    const p = state.pendingSignup;
+    if (!p) return;
+    try {
+      const data = await sb.auth_signIn(p.email, state.signupForm.password);
+      if (data.access_token) {
+        clearInterval(_emailConfirmInterval);
+        _emailConfirmInterval = null;
+        sb._token = data.access_token;
+        saveSessionFull(data);
+        // Create profile if needed
+        const existing = await sb.select('profiles', `id=eq.${p.userId}`);
+        if (!Array.isArray(existing) || existing.length === 0) {
+          await sb.insert('profiles', {
+            id: p.userId,
+            first_name: p.firstName,
+            last_name: p.lastName,
+            email: p.email,
+            mobile: p.mobile || '',
+            nickname: '',
+            role: 'Player',
+            avatar_url: null,
+          });
+        }
+        state.user = {
+          id: p.userId, email: p.email,
+          firstName: p.firstName, lastName: p.lastName,
+          nickname: '', mobile: p.mobile || '',
+          role: 'Player', avatar: null,
+        };
+        state.pendingSignup = null;
+        await loadAppData();
+        state.loading = false;
+        startPolling();
+        startTokenRefresh();
+        if (window.OneSignal) window.OneSignal.login(state.user.id).catch(() => {});
+        navigate('joinclub');
+        render(true);
+      }
+    } catch(e) {}
+  }, 3000);
+}
+
+window.cancelEmailConfirm = () => {
+  clearInterval(_emailConfirmInterval);
+  _emailConfirmInterval = null;
+  navigate('signup');
+};
+
 window.completeSignupAfterConfirm = async () => {
   const p = state.pendingSignup;
   if (!p) { navigate('signup'); return; }
@@ -5006,8 +5146,49 @@ window.doJoin = () => {
 
 window.setJoinRole = (role) => { state.joinForm.role = role; render(); };
 
-window.showResetConfirm = () => {
+window.handleSetNewPassword = async () => {
+  const newPass = document.getElementById('new-password')?.value || '';
+  const confirmPass = document.getElementById('confirm-password')?.value || '';
+  if (newPass.length < 6) { state.error = 'Password must be at least 6 characters.'; render(true); return; }
+  if (newPass !== confirmPass) { state.error = 'Passwords do not match.'; render(true); return; }
+  const btn = document.querySelector('#set-password-screen .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    const data = await sb.auth_updatePassword(newPass);
+    if (data.error) {
+      state.error = data.error.message || 'Failed to update password. Please try again.';
+      render(true);
+      if (btn) { btn.disabled = false; btn.textContent = 'Set new password'; }
+    } else {
+      state.error = '';
+      // Clear the recovery token and go to login with success message
+      sb._token = null;
+      navigate('login');
+      state.error = '✓ Password updated successfully. Please log in.';
+      render(true);
+    }
+  } catch(e) {
+    state.error = 'Something went wrong. Please try again.';
+    render(true);
+    if (btn) { btn.disabled = false; btn.textContent = 'Set new password'; }
+  }
+};
+
+window.showResetConfirm = async () => {
+  const email = document.getElementById('reset-email')?.value?.trim();
+  if (!email) {
+    state.error = 'Please enter your email address.';
+    render(true);
+    return;
+  }
+  const btn = document.querySelector('#forgot-password-screen .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+  try {
+    await sb.auth_recover(email);
+  } catch(e) {}
+  // Always show success regardless of whether email exists (security best practice)
   document.getElementById('reset-confirm').style.display = 'block';
+  if (btn) { btn.disabled = false; btn.textContent = 'Send reset link'; }
 };
 
 window.setEventsTab = (tab) => {
@@ -5612,6 +5793,7 @@ window.deleteAnnouncement = async (id) => {
     if (!deleted.includes(id)) deleted.push(id);
     localStorage.setItem('clubapp_deleted_anns', JSON.stringify(deleted.slice(-50)));
   } catch(e) {}
+  state.prevScreen = 'home';
   navigate('announcements');
   // Delete from Supabase - DO NOT remove from blacklist after, leave it there
   // so poll never re-adds it even if Supabase is slow
@@ -6462,7 +6644,7 @@ async function pollAll() {
           changed = true;
         }
 
-        if (changed && !isUserTyping()) render();
+        if (changed && !isUserTyping() && state.screen !== 'home') render();
       }
     } catch(e) { console.log('Event poll error:', e); }
   }
@@ -6491,7 +6673,7 @@ async function pollAll() {
           }));
         const changed = JSON.stringify(newList.map(a=>a.id)) !== JSON.stringify(state.announcements.map(a=>a.id));
         state.announcements = newList;
-        if (changed && !isUserTyping()) render();
+        if (changed && !isUserTyping() && state.screen !== 'home') render();
       }
     } catch(e) { console.log('Announcement poll error:', e); }
   }
@@ -6754,6 +6936,65 @@ function checkShowInstallPrompt() {
 (async () => {
   try {
     render(true);
+
+    // Check for password recovery or email confirmation token in URL hash
+    const hashParams = Object.fromEntries(new URLSearchParams(window.location.hash.slice(1)));
+    if (hashParams.type === 'recovery' && hashParams.access_token) {
+      sb._token = hashParams.access_token;
+      window.history.replaceState(null, '', window.location.pathname);
+      state.restoringSession = false;
+      state.loading = false;
+      navigate('setnewpassword');
+      render(true);
+      return;
+    }
+    if (hashParams.type === 'signup' && hashParams.access_token) {
+      // Email confirmed — set token, create profile if needed, go to joinclub
+      sb._token = hashParams.access_token;
+      window.history.replaceState(null, '', window.location.pathname);
+      const p = state.pendingSignup;
+      if (p) {
+        // pendingSignup still in memory — complete the flow
+        const existing = await sb.select('profiles', `id=eq.${p.userId}`);
+        if (!Array.isArray(existing) || existing.length === 0) {
+          await sb.insert('profiles', {
+            id: p.userId,
+            first_name: p.firstName,
+            last_name: p.lastName,
+            email: p.email,
+            mobile: p.mobile || '',
+            nickname: '',
+            role: 'Player',
+            avatar_url: null,
+          });
+        }
+        state.user = {
+          id: p.userId, email: p.email,
+          firstName: p.firstName, lastName: p.lastName,
+          nickname: '', mobile: p.mobile || '',
+          role: 'Player', avatar: null,
+        };
+        state.pendingSignup = null;
+        await loadAppData();
+        state.loading = false;
+        navigate('joinclub');
+        render(true);
+      } else {
+        // pendingSignup lost (e.g. different device/browser) — sign them in via token
+        saveSessionFull({ access_token: hashParams.access_token, refresh_token: hashParams.refresh_token });
+        const restored = await tryRestoreSession();
+        state.restoringSession = false;
+        state.loading = false;
+        if (restored) {
+          navigate('joinclub');
+          startPolling();
+          startTokenRefresh();
+        }
+        render(true);
+      }
+      return;
+    }
+
     const restored = await tryRestoreSession();
     state.restoringSession = false;
     try { checkShowInstallPrompt(); } catch(e) {}
