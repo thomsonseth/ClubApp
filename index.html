@@ -2251,15 +2251,17 @@ async function handleSignup() {
     state.loading = false; render(); return;
   }
 
-  // Check if email confirmation is required (no access_token returned)
-  if (!data.access_token && data.user?.identities?.length === 0) {
+  // Check if email confirmation is required
+  if (data.user?.identities?.length === 0) {
     // Email already registered
     state.error = 'An account with this email already exists. Please log in instead.';
     state.loading = false; render(); return;
   }
 
-  if (!data.access_token && data.user) {
-    // Supabase requires email confirmation — show message
+  if (data.user && !data.user.confirmed_at && !data.user.email_confirmed_at) {
+    // Supabase requires email confirmation — show waiting screen
+    sb._token = data.access_token || null;
+    if (data.access_token) saveSessionFull(data);
     state.loading = false;
     state.error = '';
     state.screen = 'emailconfirm';
@@ -3045,13 +3047,26 @@ function buildForgotPassword() {
         <button class="btn-primary" onclick="showResetConfirm()">Send reset link</button>
         <div class="auth-link" onclick="navigate('login')">Back to login</div>
         <div id="reset-confirm" style="display:none;text-align:center;color:var(--teal);font-size:15px;padding:16px;background:rgba(78,205,196,0.1);border-radius:12px;">
-          ✓ Check your email for a link to continue.
+          ✓ Check your email for the reset link. Once done, open the ${CLUB_CONFIG.clubShortName} app and log in with your new password.
         </div>
       </div>
     </div>
   </div>`;
 }
 
+
+window.startForgotPasswordListener = () => {
+  setTimeout(() => {
+    const handler = () => {
+      if (!document.hidden && state.screen === 'forgotpassword') {
+        document.removeEventListener('visibilitychange', handler);
+        navigate('login');
+        render();
+      }
+    };
+    document.addEventListener('visibilitychange', handler);
+  }, 3000);
+};
 // ── SET NEW PASSWORD SCREEN ──────────────────────────────────────────────
 function buildSetNewPassword() {
   return `<div class="screen" id="set-password-screen">
@@ -3060,7 +3075,7 @@ function buildSetNewPassword() {
       <div class="auth-screen">
         <div>
           <div class="auth-heading">Set new password</div>
-          <div class="auth-subheading">Choose a new password for your account</div>
+          <div class="auth-subheading">Almost done — set a new password then log in to the ${CLUB_CONFIG.clubShortName} app</div>
         </div>
         ${state.error ? `<div class="error-msg">${state.error}</div>` : ''}
         <div class="input-group">
@@ -5045,12 +5060,15 @@ function startEmailConfirmPolling() {
     const p = state.pendingSignup;
     if (!p) return;
     try {
-      const data = await sb.auth_signIn(p.email, state.signupForm.password);
-      if (data.access_token) {
+      // Check if email has been confirmed by fetching user data
+      const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+        headers: { 'apikey': SUPABASE_ANON, 'Authorization': `Bearer ${sb._token}` }
+      });
+      const userData = await r.json();
+      const confirmed = userData.email_confirmed_at || userData.confirmed_at;
+      if (confirmed) {
         clearInterval(_emailConfirmInterval);
         _emailConfirmInterval = null;
-        sb._token = data.access_token;
-        saveSessionFull(data);
         // Create profile if needed
         const existing = await sb.select('profiles', `id=eq.${p.userId}`);
         if (!Array.isArray(existing) || existing.length === 0) {
@@ -5189,6 +5207,7 @@ window.showResetConfirm = async () => {
   // Always show success regardless of whether email exists (security best practice)
   document.getElementById('reset-confirm').style.display = 'block';
   if (btn) { btn.disabled = false; btn.textContent = 'Send reset link'; }
+  startForgotPasswordListener();
 };
 
 window.setEventsTab = (tab) => {
