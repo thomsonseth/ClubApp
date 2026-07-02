@@ -3285,17 +3285,6 @@ function buildHome() {
           <div class="welcome-name">Welcome back, ${displayName}!</div>
           <div class="welcome-role">${u.role}</div>
         </div>
-        ${state.showNotifBanner ? `
-        <div style="background:var(--accent);border-radius:14px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;">
-          <div style="display:flex;align-items:center;gap:10px;">
-            <span style="font-size:20px;">🔔</span>
-            <div style="font-size:13px;color:#fff;font-weight:500;line-height:1.4;">Enable notifications to stay up to date</div>
-          </div>
-          <div style="display:flex;gap:8px;flex-shrink:0;">
-            <button onclick="dismissNotifBanner()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:6px 10px;border-radius:8px;font-size:12px;cursor:pointer;">Later</button>
-            <button onclick="enableNotifications()" style="background:#fff;border:none;color:var(--accent);padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">Enable</button>
-          </div>
-        </div>` : ''}
         <div>
           <div class="section-header" style="margin-bottom:0;">
             <div class="section-title" style="margin-bottom:0;cursor:pointer;display:flex;align-items:center;gap:6px;" onclick="goToEventsTab('matches')">
@@ -6560,34 +6549,17 @@ const ONESIGNAL_WORKER_URL = 'https://onesignal-proxy.thomsonseth.workers.dev';
 // Request permission from the user after they log in
 async function requestNotificationPermission() {
   try {
-    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
-    const isStandalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
-    if (isIOS && !isStandalone) return;
-
     // Wait for OneSignal SDK to be ready (up to 5s)
     let attempts = 0;
     while ((!window.OneSignal || !window.OneSignal.Notifications) && attempts < 10) {
       await new Promise(r => setTimeout(r, 500));
       attempts++;
     }
-    if (!window.OneSignal) return;
-
-    // Check native browser permission first
-    const nativePermission = 'Notification' in window ? Notification.permission : 'default';
-    const hasPermission = nativePermission === 'granted' || await window.OneSignal.Notifications.permission;
-
-    if (hasPermission) {
-      // Already granted — ensure OneSignal.login is called to link user
-      state.showNotifBanner = false;
-      if (state.user) {
-        try { await window.OneSignal.login(state.user.id); } catch(e) {}
-      }
-    } else if (!localStorage.getItem('clubapp_notif_dismissed')) {
-      state.showNotifBanner = true;
-    }
-    render();
+    if (!window.OneSignal || !state.user) return;
+    // Link the user ID to this OneSignal subscription
+    await window.OneSignal.login(state.user.id);
   } catch(e) {
-    console.log('Notification permission check failed:', e);
+    console.log('OneSignal login failed:', e);
   }
 }
 
