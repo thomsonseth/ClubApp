@@ -6560,15 +6560,32 @@ const ONESIGNAL_WORKER_URL = 'https://onesignal-proxy.thomsonseth.workers.dev';
 // Request permission from the user after they log in
 async function requestNotificationPermission() {
   try {
-    // Only show the banner — don't auto-request on iOS (requires user gesture)
     const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
     const isStandalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
-    if (isIOS && !isStandalone) return; // Not installed as PWA on iOS — can't use push
-    const hasPermission = window.OneSignal && await window.OneSignal.Notifications.permission;
-    if (!hasPermission && !localStorage.getItem('clubapp_notif_dismissed')) {
-      state.showNotifBanner = true;
-      render();
+    if (isIOS && !isStandalone) return;
+
+    // Wait for OneSignal SDK to be ready (up to 5s)
+    let attempts = 0;
+    while ((!window.OneSignal || !window.OneSignal.Notifications) && attempts < 10) {
+      await new Promise(r => setTimeout(r, 500));
+      attempts++;
     }
+    if (!window.OneSignal) return;
+
+    // Check native browser permission first
+    const nativePermission = 'Notification' in window ? Notification.permission : 'default';
+    const hasPermission = nativePermission === 'granted' || await window.OneSignal.Notifications.permission;
+
+    if (hasPermission) {
+      // Already granted — ensure OneSignal.login is called to link user
+      state.showNotifBanner = false;
+      if (state.user) {
+        try { await window.OneSignal.login(state.user.id); } catch(e) {}
+      }
+    } else if (!localStorage.getItem('clubapp_notif_dismissed')) {
+      state.showNotifBanner = true;
+    }
+    render();
   } catch(e) {
     console.log('Notification permission check failed:', e);
   }
@@ -6578,14 +6595,15 @@ window.enableNotifications = async () => {
   state.showNotifBanner = false;
   render();
   try {
-    // Call native permission API directly — must be in response to user tap
     if ('Notification' in window) {
-      const permission = await Notification.requestPermission();
-      console.log('Native notification permission:', permission);
+      await Notification.requestPermission();
     }
-    // Then register with OneSignal
     if (window.OneSignal) {
       await window.OneSignal.Notifications.requestPermission();
+      // Link the user ID to this subscription
+      if (state.user) {
+        await window.OneSignal.login(state.user.id);
+      }
     }
   } catch(e) {
     console.log('Notification permission request failed:', e);
