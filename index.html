@@ -6578,6 +6578,12 @@ window.enableNotifications = async () => {
   state.showNotifBanner = false;
   render();
   try {
+    // Call native permission API directly — must be in response to user tap
+    if ('Notification' in window) {
+      const permission = await Notification.requestPermission();
+      console.log('Native notification permission:', permission);
+    }
+    // Then register with OneSignal
     if (window.OneSignal) {
       await window.OneSignal.Notifications.requestPermission();
     }
