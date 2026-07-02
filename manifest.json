@@ -1,0 +1,18 @@
+{
+  "name": "Laurimar Power Cricket Club",
+  "short_name": "Laurimar Power",
+  "description": "Official app for Laurimar Power Cricket Club",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#111318",
+  "theme_color": "#00b5b5",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
