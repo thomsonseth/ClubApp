@@ -1617,6 +1617,7 @@ const state = {
   loginForm: { email: '', password: '' },
   signupForm: { firstName: '', lastName: '', mobile: '', email: '', password: '', confirm: '' },
   joinForm: { nickname: '', role: 'player', joinCode: '', loading: false },
+  showNotifBanner: false,
   feedbackForm: { name: '', email: '', message: '' },
   createAnnouncementForm: {
     recipients: 'all',
@@ -3284,6 +3285,17 @@ function buildHome() {
           <div class="welcome-name">Welcome back, ${displayName}!</div>
           <div class="welcome-role">${u.role}</div>
         </div>
+        ${state.showNotifBanner ? `
+        <div style="background:var(--accent);border-radius:14px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span style="font-size:20px;">🔔</span>
+            <div style="font-size:13px;color:#fff;font-weight:500;line-height:1.4;">Enable notifications to stay up to date</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-shrink:0;">
+            <button onclick="dismissNotifBanner()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:6px 10px;border-radius:8px;font-size:12px;cursor:pointer;">Later</button>
+            <button onclick="enableNotifications()" style="background:#fff;border:none;color:var(--accent);padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">Enable</button>
+          </div>
+        </div>` : ''}
         <div>
           <div class="section-header" style="margin-bottom:0;">
             <div class="section-title" style="margin-bottom:0;cursor:pointer;display:flex;align-items:center;gap:6px;" onclick="goToEventsTab('matches')">
@@ -6548,27 +6560,37 @@ const ONESIGNAL_WORKER_URL = 'https://onesignal-proxy.thomsonseth.workers.dev';
 // Request permission from the user after they log in
 async function requestNotificationPermission() {
   try {
-    // Wait for OneSignal SDK to finish loading (up to 8 seconds)
-    let attempts = 0;
-    while (!window.OneSignal && attempts < 16) {
-      await new Promise(r => setTimeout(r, 500));
-      attempts++;
+    // Only show the banner — don't auto-request on iOS (requires user gesture)
+    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    const isStandalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+    if (isIOS && !isStandalone) return; // Not installed as PWA on iOS — can't use push
+    const hasPermission = window.OneSignal && await window.OneSignal.Notifications.permission;
+    if (!hasPermission && !localStorage.getItem('clubapp_notif_dismissed')) {
+      state.showNotifBanner = true;
+      render();
     }
-    if (!window.OneSignal) {
-      console.log('OneSignal SDK never became available');
-      return;
-    }
-    const permission = await window.OneSignal.Notifications.permission;
-    console.log('Current notification permission:', permission);
-    if (!permission) {
-      const result = await window.OneSignal.Notifications.requestPermission();
-      console.log('Permission request result:', result);
+  } catch(e) {
+    console.log('Notification permission check failed:', e);
+  }
+}
+
+window.enableNotifications = async () => {
+  state.showNotifBanner = false;
+  render();
+  try {
+    if (window.OneSignal) {
+      await window.OneSignal.Notifications.requestPermission();
     }
   } catch(e) {
     console.log('Notification permission request failed:', e);
   }
-}
+};
 
+window.dismissNotifBanner = () => {
+  state.showNotifBanner = false;
+  localStorage.setItem('clubapp_notif_dismissed', '1');
+  render();
+};
 
 // Call after restoring session too
 async function reRegisterOneSignal() {
