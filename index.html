@@ -7067,6 +7067,19 @@ function checkShowInstallPrompt() {
 
     // Check for password recovery or email confirmation token in URL hash
     const hashParams = Object.fromEntries(new URLSearchParams(window.location.hash.slice(1)));
+    if (hashParams.error) {
+      // Supabase redirects here with an error instead of a token when a link is
+      // invalid, expired, or already used — most commonly because a mail provider's
+      // link-scanner (e.g. Outlook/Hotmail) already visited it before the user did.
+      window.history.replaceState(null, '', window.location.pathname);
+      state.restoringSession = false;
+      state.loading = false;
+      navigate('login');
+      state.error = hashParams.error_description
+        || 'This link has expired or already been used. Your email may already be confirmed — try logging in, or sign up again if needed.';
+      render(true);
+      return;
+    }
     if (hashParams.type === 'recovery' && hashParams.access_token) {
       sb._token = hashParams.access_token;
       window.history.replaceState(null, '', window.location.pathname);
