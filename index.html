@@ -5881,8 +5881,8 @@ window.deleteAnnouncement = async (id) => {
     if (!deleted.includes(id)) deleted.push(id);
     localStorage.setItem('clubapp_deleted_anns', JSON.stringify(deleted.slice(-50)));
   } catch(e) {}
-  state.prevScreen = 'home';
   navigate('announcements');
+  state.prevScreen = 'home';
   // Delete from Supabase - DO NOT remove from blacklist after, leave it there
   // so poll never re-adds it even if Supabase is slow
   try { await sb.delete('announcements', { id }); } catch(e) {}
