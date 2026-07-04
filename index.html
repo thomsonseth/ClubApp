@@ -5136,15 +5136,16 @@ function startEmailConfirmPolling() {
     const p = state.pendingSignup;
     if (!p) return;
     try {
-      // Check if email has been confirmed by fetching user data
-      const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-        headers: { 'apikey': SUPABASE_ANON, 'Authorization': `Bearer ${sb._token}` }
-      });
-      const userData = await r.json();
-      const confirmed = userData.email_confirmed_at || userData.confirmed_at;
-      if (confirmed) {
+      // Confirmation issues no session/token up front, so checking /auth/v1/user
+      // with a bearer token never works here — there isn't one yet. The only
+      // reliable signal from this side is attempting a real sign-in: it fails
+      // until the email is confirmed, then succeeds exactly once it is.
+      const data = await sb.auth_signIn(p.email, state.signupForm.password);
+      if (data.access_token) {
         clearInterval(_emailConfirmInterval);
         _emailConfirmInterval = null;
+        sb._token = data.access_token;
+        saveSessionFull(data);
         // Create profile if needed
         const existing = await sb.select('profiles', `id=eq.${p.userId}`);
         if (!Array.isArray(existing) || existing.length === 0) {
@@ -5176,7 +5177,10 @@ function startEmailConfirmPolling() {
         render(true);
       }
     } catch(e) {}
-  }, 3000);
+  }, 12000); // 12s — each poll is now a real sign-in attempt, and Supabase caps
+             // sign-in requests at 30 per 5 minutes per IP; a faster interval
+             // would exhaust that limit before a person realistically gets to
+             // their inbox and taps the link.
 }
 
 window.cancelEmailConfirm = () => {
