@@ -1831,6 +1831,7 @@ function profileToUser(p) {
     mobile: p.mobile || '',
     role: p.role || 'Player',
     avatar: p.avatar_url || null,
+    onboardingComplete: p.onboarding_complete === true,
   };
 }
 
@@ -2210,6 +2211,7 @@ async function handleLogin() {
       nickname: '',
       role: 'Player',
       avatar_url: null,
+      onboarding_complete: false,
     });
     state.user = {
       id: data.user.id,
@@ -2222,7 +2224,7 @@ async function handleLogin() {
     await loadAppData();
     startPolling();
     startTokenRefresh();
-    if (window.OneSignal) window.OneSignal.login(state.user.id).catch(() => {});
+    // Not linking OneSignal here — this profile isn't live until Join Club is completed.
     navigate('joinclub');
     render(true);
     return;
@@ -2230,9 +2232,16 @@ async function handleLogin() {
 
   state.user = profileToUser(profiles[0]);
   await loadAppData();
+  state.loading = false;
+  if (!state.user.onboardingComplete) {
+    navigate('joinclub');
+    startPolling();
+    startTokenRefresh();
+    render(true);
+    return;
+  }
   navigate('home');
   state.activeTab = 'home';
-  state.loading = false;
   render(true);
   setTimeout(() => {
     requestNotificationPermission();
@@ -2322,6 +2331,7 @@ async function handleSignup() {
       nickname: '',
       role: 'Player',
       avatar_url: null,
+      onboarding_complete: false,
     });
 
     state.user = {
@@ -2357,6 +2367,7 @@ async function handleJoin() {
 
   state.user.nickname = nickname || state.user.firstName;
   state.user.role = finalRole;
+  state.user.onboardingComplete = true;
   if (avatarPreview) state.user.avatar = avatarPreview;
   state.joinForm.avatarPreview = null;
 
@@ -2367,6 +2378,7 @@ async function handleJoin() {
       nickname: state.user.nickname,
       role: state.user.role,
       avatar_url: state.user.avatar || null,
+      onboarding_complete: true,
     }, { id: state.user.id });
   } catch(e) {
     console.log('Profile update error (non-fatal):', e);
@@ -2451,10 +2463,12 @@ async function tryRestoreSession() {
   }
 
   await loadAppData(true);
-  setTimeout(() => {
-    reRegisterOneSignal();
-    requestNotificationPermission();
-  }, 1500);
+  if (state.user?.onboardingComplete) {
+    setTimeout(() => {
+      reRegisterOneSignal();
+      requestNotificationPermission();
+    }, 1500);
+  }
   return true;
 }
 
@@ -5143,6 +5157,7 @@ function startEmailConfirmPolling() {
             nickname: '',
             role: 'Player',
             avatar_url: null,
+            onboarding_complete: false,
           });
         }
         state.user = {
@@ -5156,7 +5171,7 @@ function startEmailConfirmPolling() {
         state.loading = false;
         startPolling();
         startTokenRefresh();
-        if (window.OneSignal) window.OneSignal.login(state.user.id).catch(() => {});
+        // Not linking OneSignal here — this profile isn't live until Join Club is completed.
         navigate('joinclub');
         render(true);
       }
@@ -5197,6 +5212,7 @@ window.completeSignupAfterConfirm = async () => {
       nickname: '',
       role: 'Player',
       avatar_url: null,
+      onboarding_complete: false,
     });
   }
 
@@ -6659,12 +6675,19 @@ async function reRegisterOneSignal() {
 
 async function sendPushNotification(title, message, url = '/') {
   if (!ONESIGNAL_WORKER_URL) return;
+  // 'Broadcast' really means 'every completed member', not literally every subscribed
+  // device — a profile that hasn't finished Join Club yet isn't a live member and
+  // shouldn't receive club-wide notifications just because their device already
+  // holds a push subscription from the sign-up flow.
+  const userIds = state.users.filter(u => u.onboardingComplete).map(u => u.id);
+  if (!userIds.length) return;
   try {
     await fetch(ONESIGNAL_WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        included_segments: ['All'],
+        include_aliases: { external_id: userIds },
+        target_channel: 'push',
         headings: { en: title },
         contents: { en: message.substring(0, 200) },
         url,
@@ -7071,6 +7094,7 @@ function checkShowInstallPrompt() {
             nickname: '',
             role: 'Player',
             avatar_url: null,
+            onboarding_complete: false,
           });
         }
         state.user = {
@@ -7104,11 +7128,15 @@ function checkShowInstallPrompt() {
     state.restoringSession = false;
     try { checkShowInstallPrompt(); } catch(e) {}
     if (restored) {
-      navigate('home');
-      state.activeTab = 'home';
-      startPolling();
-      startTokenRefresh();
-      setTimeout(handleDeepLink, 300);
+      if (state.user && !state.user.onboardingComplete) {
+        navigate('joinclub');
+      } else {
+        navigate('home');
+        state.activeTab = 'home';
+        startPolling();
+        startTokenRefresh();
+        setTimeout(handleDeepLink, 300);
+      }
     } else {
       state.loading = false;
       state.error = '';
