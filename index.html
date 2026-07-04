@@ -2592,7 +2592,7 @@ function navigate(screen, extra = {}) {
   Object.assign(state, extra);
   state.screen = screen;
   state.error = '';
-  if (['login','signup','forgotpassword','splash'].includes(screen)) {
+  if (['login','signup','forgotpassword','splash','emailconfirmed'].includes(screen)) {
     state.loading = false;
   }
   if (document.activeElement) document.activeElement.blur();
@@ -2927,6 +2927,7 @@ function buildScreen() {
   if (s === 'forgotpassword') return buildForgotPassword();
   if (s === 'setnewpassword') return buildSetNewPassword();
   if (s === 'emailconfirm') return buildEmailConfirm();
+  if (s === 'emailconfirmed') return buildEmailConfirmed();
 
   // Screens with bottom nav
   const mainContent = (() => {
@@ -3201,6 +3202,27 @@ function buildEmailConfirm() {
         </div>
         <div class="auth-link" onclick="cancelEmailConfirm()">&#x2190; Back to sign up</div>
         ${state.error ? `<div class="error-msg">${state.error}</div>` : ''}
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── EMAIL CONFIRMED (link opened in a different browser/tab) ─────────────
+function buildEmailConfirmed() {
+  return `<div class="screen">
+    <div style="padding-top:8px;display:flex;align-items:center;justify-content:center;">${buildLogo(66)}</div>
+    <div class="screen-scroll">
+      <div class="auth-screen">
+        <div>
+          <div class="auth-heading">Email confirmed ✓</div>
+          <div class="auth-subheading">Your account with ${CLUB_CONFIG.clubShortName} is now confirmed</div>
+        </div>
+        <div style="background:var(--surface);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:12px;text-align:center;">
+          <div style="font-size:15px;color:var(--text);line-height:1.6;">
+            Go back to the ${CLUB_CONFIG.clubShortName} app on your home screen to finish setting up your profile.
+          </div>
+        </div>
+        <div style="font-size:13px;color:var(--text-dim);text-align:center;">You can close this tab now.</div>
       </div>
     </div>
   </div>`;
@@ -7130,21 +7152,17 @@ function checkShowInstallPrompt() {
         navigate('joinclub');
         render(true);
       } else {
-        // pendingSignup lost (e.g. different device/browser). The hash only carries
-        // raw tokens, not the user's id or details — fetch the actual user record
-        // with this fresh, valid token so we know who this is and can recover the
-        // name/mobile we stored as signup metadata for exactly this situation.
+        // pendingSignup lost (e.g. different device/browser). This tab isn't where
+        // onboarding should finish — the installed app is independently polling
+        // (via a sign-in attempt) and will pick up this confirmation on its own.
+        // Opportunistically create the profile here too as a backstop, in case
+        // that original tab/app was closed, using the metadata stored at signup.
         try {
           const userRes = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
             headers: { 'apikey': SUPABASE_ANON, 'Authorization': `Bearer ${hashParams.access_token}` }
           });
           const userData = await userRes.json();
           if (userData?.id) {
-            saveSessionFull({
-              access_token: hashParams.access_token,
-              refresh_token: hashParams.refresh_token,
-              user: userData,
-            });
             const meta = userData.user_metadata || {};
             const existing = await sb.select('profiles', `id=eq.${userData.id}`);
             if (!Array.isArray(existing) || existing.length === 0) {
@@ -7160,20 +7178,11 @@ function checkShowInstallPrompt() {
                 onboarding_complete: false,
               });
             }
-            state.user = {
-              id: userData.id, email: userData.email,
-              firstName: meta.first_name || '', lastName: meta.last_name || '',
-              nickname: '', mobile: meta.mobile || '',
-              role: 'Player', avatar: null,
-            };
-            await loadAppData();
-            startPolling();
-            startTokenRefresh();
-            navigate('joinclub');
           }
         } catch(e) {}
         state.restoringSession = false;
         state.loading = false;
+        navigate('emailconfirmed');
         render(true);
       }
       return;
