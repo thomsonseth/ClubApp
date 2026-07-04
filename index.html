@@ -1700,11 +1700,11 @@ const sb = {
     return new SBQuery(table);
   },
 
-  async auth_signUp(email, password) {
+  async auth_signUp(email, password, metadata = null) {
     const r = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
       method: 'POST',
       headers: { 'apikey': SUPABASE_ANON, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify(metadata ? { email, password, data: metadata } : { email, password }),
     });
     return r.json();
   },
@@ -2273,7 +2273,11 @@ async function handleSignup() {
   state.loading = true; render();
 
   // Create auth user
-  const raw = await sb.auth_signUp(f.email, f.password);
+  const raw = await sb.auth_signUp(f.email, f.password, {
+    first_name: f.firstName,
+    last_name: f.lastName,
+    mobile: mobileE164,
+  });
   if (raw.error) {
     state.error = raw.error.message || 'Sign up failed.';
     state.loading = false; render(); return;
@@ -7126,16 +7130,50 @@ function checkShowInstallPrompt() {
         navigate('joinclub');
         render(true);
       } else {
-        // pendingSignup lost (e.g. different device/browser) — sign them in via token
-        saveSessionFull({ access_token: hashParams.access_token, refresh_token: hashParams.refresh_token });
-        const restored = await tryRestoreSession();
+        // pendingSignup lost (e.g. different device/browser). The hash only carries
+        // raw tokens, not the user's id or details — fetch the actual user record
+        // with this fresh, valid token so we know who this is and can recover the
+        // name/mobile we stored as signup metadata for exactly this situation.
+        try {
+          const userRes = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+            headers: { 'apikey': SUPABASE_ANON, 'Authorization': `Bearer ${hashParams.access_token}` }
+          });
+          const userData = await userRes.json();
+          if (userData?.id) {
+            saveSessionFull({
+              access_token: hashParams.access_token,
+              refresh_token: hashParams.refresh_token,
+              user: userData,
+            });
+            const meta = userData.user_metadata || {};
+            const existing = await sb.select('profiles', `id=eq.${userData.id}`);
+            if (!Array.isArray(existing) || existing.length === 0) {
+              await sb.insert('profiles', {
+                id: userData.id,
+                first_name: meta.first_name || '',
+                last_name: meta.last_name || '',
+                email: userData.email,
+                mobile: meta.mobile || '',
+                nickname: '',
+                role: 'Player',
+                avatar_url: null,
+                onboarding_complete: false,
+              });
+            }
+            state.user = {
+              id: userData.id, email: userData.email,
+              firstName: meta.first_name || '', lastName: meta.last_name || '',
+              nickname: '', mobile: meta.mobile || '',
+              role: 'Player', avatar: null,
+            };
+            await loadAppData();
+            startPolling();
+            startTokenRefresh();
+            navigate('joinclub');
+          }
+        } catch(e) {}
         state.restoringSession = false;
         state.loading = false;
-        if (restored) {
-          navigate('joinclub');
-          startPolling();
-          startTokenRefresh();
-        }
         render(true);
       }
       return;
