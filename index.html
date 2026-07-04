@@ -2247,9 +2247,17 @@ async function handleSignup() {
   if (!f.firstName || !f.lastName || !f.email || !f.password) {
     state.error = 'Please fill in all fields.'; render(); return;
   }
+  if (!isValidEmail(f.email)) {
+    state.error = 'Please enter a valid email address.'; render(); return;
+  }
+  if (f.mobile && !isValidAuMobile(f.mobile)) {
+    state.error = 'Please enter a valid mobile number (9 digits, e.g. 412 345 678).'; render(); return;
+  }
   if (f.password !== f.confirm) {
     state.error = 'Passwords do not match.'; render(); return;
   }
+  // Normalize the mobile number to full +61 form now, before it's persisted anywhere.
+  const mobileE164 = toAuMobileE164(f.mobile);
   state.loading = true; render();
 
   // Create auth user
@@ -2286,7 +2294,7 @@ async function handleSignup() {
       firstName: f.firstName,
       lastName: f.lastName,
       email: f.email,
-      mobile: f.mobile || '',
+      mobile: mobileE164,
       userId: data.user.id,
     };
     render();
@@ -2307,7 +2315,7 @@ async function handleSignup() {
       first_name: f.firstName,
       last_name: f.lastName,
       email: f.email,
-      mobile: f.mobile || '',
+      mobile: mobileE164,
       nickname: '',
       role: 'Player',
       avatar_url: null,
@@ -2319,7 +2327,7 @@ async function handleSignup() {
       firstName: f.firstName,
       lastName: f.lastName,
       nickname: '',
-      mobile: f.mobile || '',
+      mobile: mobileE164,
       role: 'Player',
       avatar: null,
     };
@@ -2451,6 +2459,30 @@ async function tryRestoreSession() {
 
 
 // ── HELPERS ─────────────────────────────────────────────────────────────
+// ── VALIDATION: Email / AU mobile ────────────────────────────────────────
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((email || '').trim());
+}
+
+// Strips everything but digits, and drops a leading trunk '0' so the
+// remaining number is the 9-digit AU subscriber number (e.g. 412345678).
+function normalizeAuMobileDigits(raw) {
+  let d = (raw || '').replace(/\D/g, '');
+  if (d.startsWith('0')) d = d.slice(1);
+  return d;
+}
+
+// Valid AU mobile: 9 digits without the leading 0, or 10 digits with it.
+function isValidAuMobile(raw) {
+  return /^\d{9}$/.test(normalizeAuMobileDigits(raw));
+}
+
+// Full E.164-style number for storage, e.g. '+61412345678'. Empty in → empty out.
+function toAuMobileE164(raw) {
+  const d = normalizeAuMobileDigits(raw);
+  return d ? `+61${d}` : '';
+}
+
 function getSvgDataUrl() {
   const svg = document.getElementById('svg-logo-template');
   const serialized = new XMLSerializer().serializeToString(svg);
@@ -3031,7 +3063,16 @@ function buildSignup() {
         <div style="display:flex;flex-direction:column;gap:14px;">
           <div class="input-group"><label class="input-label">First name</label><input class="input-field" id="su-fn" placeholder="Enter first name" value="${f.firstName}"/></div>
           <div class="input-group"><label class="input-label">Last name</label><input class="input-field" id="su-ln" placeholder="Enter last name" value="${f.lastName}"/></div>
-          <div class="input-group"><label class="input-label">Mobile</label><input class="input-field" id="su-mob" type="tel" placeholder="Enter mobile number" value="${f.mobile}"/></div>
+          <div class="input-group">
+            <label class="input-label">Mobile</label>
+            <div style="display:flex;align-items:center;background:var(--surface);border-radius:12px;">
+              <span style="padding:14px 0 14px 16px;color:var(--text-dim);font-size:15px;font-weight:600;">+61</span>
+              <input class="input-field" id="su-mob" type="tel" inputmode="numeric" maxlength="10"
+                placeholder="412 345 678" value="${f.mobile}"
+                style="background:transparent;padding-left:8px;"
+                oninput="this.value=this.value.replace(/\D/g,'').slice(0,10)"/>
+            </div>
+          </div>
           <div class="input-group"><label class="input-label">Email</label><input class="input-field" id="su-email" type="email" placeholder="Enter email" value="${f.email}"/></div>
           <div class="input-group"><label class="input-label">Password</label><input class="input-field" id="su-pw" type="password" placeholder="Enter password" value="${f.password}"/></div>
           <div class="input-group"><label class="input-label">Confirm password</label><input class="input-field" id="su-cpw" type="password" placeholder="Confirm password" value="${f.confirm}"/></div>
@@ -5058,7 +5099,7 @@ window.doSignup = () => {
   state.signupForm.firstName = document.getElementById('su-fn')?.value || '';
   state.signupForm.lastName = document.getElementById('su-ln')?.value || '';
   state.signupForm.mobile = document.getElementById('su-mob')?.value || '';
-  state.signupForm.email = document.getElementById('su-email')?.value || '';
+  state.signupForm.email = (document.getElementById('su-email')?.value || '').trim();
   state.signupForm.password = document.getElementById('su-pw')?.value || '';
   state.signupForm.confirm = document.getElementById('su-cpw')?.value || '';
   handleSignup();
