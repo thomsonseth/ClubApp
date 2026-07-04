@@ -3434,7 +3434,7 @@ function buildAnnouncements() {
 // ── ANNOUNCEMENT DETAIL ──────────────────────────────────────────────────
 function buildAnnouncementDetail() {
   const a = state.announcements.find(x => x.id === state.activeAnnouncementId);
-  if (!a) return `<div class="screen">${buildTopBanner({ title: 'Announcement', showBack: true, onBack: "state.activeTab='home';navigate('home')" })}<div class="empty-state" style="margin:20px;">Not found</div></div>`;
+  if (!a) return `<div class="screen">${buildTopBanner({ title: 'Announcement', showBack: true, onBack: "goHome()" })}<div class="empty-state" style="margin:20px;">Not found</div></div>`;
   const isAdmin = state.user?.role === 'Administrator' || state.user?.role === 'Captain';
   return `<div class="screen">
     ${buildTopBanner({ title: 'Announcement', showBack: true })}
@@ -5072,6 +5072,7 @@ function buildModal() {
 
 // ── GLOBAL FUNCTIONS (called from onclick) ────────────────────────────────
 window.navigate = navigate;
+window.goHome = () => { state.activeTab = 'home'; navigate('home'); };
 
 
 
