@@ -1620,6 +1620,9 @@ const state = {
   showNotifBanner: false,
   feedbackForm: { name: '', email: '', message: '' },
   createAnnouncementForm: {
+    title: '',
+    body: '',
+    image: null,
     recipients: 'all',
     sendNotification: true,
   },
@@ -2951,8 +2954,8 @@ function buildLogo(size = 44) {
     alt="Club logo"/>`;
 }
 
-function buildTopBanner({ title = '', showBack = false } = {}) {
-  const back = showBack ? `<button class="back-btn" onclick="goBack()">‹ Back</button>` : '';
+function buildTopBanner({ title = '', showBack = false, onBack = null } = {}) {
+  const back = showBack ? `<button class="back-btn" onclick="${onBack || 'goBack()'}">‹ Back</button>` : '';
   return `<div class="top-banner">
     ${back}
     ${title ? `<span class="screen-title">${title}</span>` : buildLogo(80)}
@@ -3359,7 +3362,7 @@ function buildHome() {
               Latest Announcements
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
             </div>
-            ${isAdmin ? `<button onclick="navigate('createannouncement')" style="width:28px;height:28px;border-radius:50%;background:var(--accent);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;" title="Create announcement">
+            ${isAdmin ? `<button onclick="openCreateAnnouncement()" style="width:28px;height:28px;border-radius:50%;background:var(--accent);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;" title="Create announcement">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             </button>` : ''}
           </div>
@@ -3419,7 +3422,7 @@ function buildAnnouncements() {
     ${buildTopBanner({ title: 'Announcements', showBack: true })}
     <div class="screen-scroll">
       <div style="padding:16px;display:flex;flex-direction:column;gap:12px;">
-        ${isAdmin ? `<button class="btn-primary" style="display:flex;align-items:center;justify-content:center;gap:8px;" onclick="navigate('createannouncement')">
+        ${isAdmin ? `<button class="btn-primary" style="display:flex;align-items:center;justify-content:center;gap:8px;" onclick="openCreateAnnouncement()">
           <span>${icons.plus}</span> Create announcement
         </button>` : ''}
         ${cards || '<div class="empty-state">No announcements yet</div>'}
@@ -3431,7 +3434,7 @@ function buildAnnouncements() {
 // ── ANNOUNCEMENT DETAIL ──────────────────────────────────────────────────
 function buildAnnouncementDetail() {
   const a = state.announcements.find(x => x.id === state.activeAnnouncementId);
-  if (!a) return `<div class="screen">${buildTopBanner({ title: 'Announcement', showBack: true })}<div class="empty-state" style="margin:20px;">Not found</div></div>`;
+  if (!a) return `<div class="screen">${buildTopBanner({ title: 'Announcement', showBack: true, onBack: "state.activeTab='home';navigate('home')" })}<div class="empty-state" style="margin:20px;">Not found</div></div>`;
   const isAdmin = state.user?.role === 'Administrator' || state.user?.role === 'Captain';
   return `<div class="screen">
     ${buildTopBanner({ title: 'Announcement', showBack: true })}
@@ -3492,13 +3495,13 @@ function buildCreateAnnouncement() {
         <div class="input-group">
           <label class="input-label">Title</label>
           <input class="input-field" id="ann-title" placeholder="Announcement title"
-            value="${f.title}" oninput="saveAnnField('title', this.value)"/>
+            value="${f.title || ''}" oninput="saveAnnField('title', this.value)"/>
         </div>
 
         <div class="input-group">
           <label class="input-label">Message</label>
           <textarea class="input-field" id="ann-body" placeholder="Write your announcement…"
-            style="min-height:120px;" oninput="saveAnnField('body', this.value)">${f.body}</textarea>
+            style="min-height:120px;" oninput="saveAnnField('body', this.value)">${f.body || ''}</textarea>
         </div>
 
         <div style="display:flex;flex-direction:column;gap:8px;">
@@ -5837,6 +5840,13 @@ window.handleAnnImageUpload = (event) => {
 window.openAnnouncement = (id) => {
   state.activeAnnouncementId = id;
   navigate('anndetail');
+};
+
+window.openCreateAnnouncement = () => {
+  state.editingAnnouncementId = null;
+  state.createAnnouncementForm = { title: '', body: '', image: null, recipients: 'all', sendNotification: true };
+  state.error = '';
+  navigate('createannouncement');
 };
 
 window.editAnnouncement = (id) => {
