@@ -2253,11 +2253,20 @@ async function handleSignup() {
   state.loading = true; render();
 
   // Create auth user
-  const data = await sb.auth_signUp(f.email, f.password);
-  if (data.error) {
-    state.error = data.error.message || 'Sign up failed.';
+  const raw = await sb.auth_signUp(f.email, f.password);
+  if (raw.error) {
+    state.error = raw.error.message || 'Sign up failed.';
     state.loading = false; render(); return;
   }
+
+  // Supabase's raw GoTrue REST endpoint (no supabase-js) returns two different
+  // shapes depending on whether email confirmation is required:
+  //  - Confirmation required (no session yet): the user object is returned
+  //    UNWRAPPED at the top level — { id, email, confirmed_at: null, ... }
+  //  - Confirmation not required (session created immediately): the response
+  //    is wrapped — { access_token, refresh_token, user: {...} }
+  // Normalize here so the rest of this function can always read data.user.
+  const data = raw.user ? raw : { user: raw };
 
   // Check if email confirmation is required
   if (data.user?.identities?.length === 0) {
