@@ -5108,9 +5108,7 @@ function buildModal() {
             <div style="height:1px;background:var(--border);"></div>
 
             ${!m.showCancel ? `
-              <button style="background:none;border:none;color:var(--red);font-size:14px;font-weight:600;cursor:pointer;text-align:left;padding:4px 0;" onclick="showModalCancelSection()">
-                Cancel this session…
-              </button>
+              <button class="btn-danger" onclick="showModalCancelSection()">Cancel Session</button>
             ` : `
               <div>
                 <div class="input-label" style="margin-bottom:8px;color:var(--red);">Cancel this session</div>
