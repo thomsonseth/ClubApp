@@ -233,6 +233,14 @@
   .input-field::placeholder { color: var(--text-dim); }
   .input-field:focus { box-shadow: 0 0 0 2px var(--teal); }
 
+  /* 'Select' placeholder for empty native date/time inputs (which don't support placeholder) */
+  .date-input-wrap { position: relative; }
+  .date-input-wrap .date-placeholder {
+    position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
+    color: var(--text-dim); font-size: 15px; pointer-events: none;
+  }
+  .input-field.date-empty::-webkit-datetime-edit { color: transparent; }
+
   .input-group { display: flex; flex-direction: column; gap: 6px; }
   .input-label { font-size: 14px; font-weight: 600; color: var(--text); }
 
@@ -1655,7 +1663,7 @@ const state = {
     commenceDate: '',
     concludeDate: '',
     location: '',
-    reminder: 'dayBefore',
+    reminders: ['dayBefore'],
   },
   activeTrainingSessionId: null,
   editingEventId: null,
@@ -3787,7 +3795,7 @@ function buildEventDetail() {
         <div class="event-detail-title">${ev.title}</div>
         <div style="display:flex;flex-direction:column;gap:8px;">
           <div class="event-detail-meta">${icons.clock} ${formatDate(ev.date)} at ${formatTime(ev.time)}</div>
-          <div class="event-detail-meta">${icons.mappin} ${ev.location} &nbsp;<span style="color:var(--teal);cursor:pointer;font-size:13px;">Open in Maps</span></div>
+          <div class="event-detail-meta">${icons.mappin} ${ev.location} &nbsp;<span style="color:var(--teal);cursor:pointer;font-size:13px;" onclick="openMaps('${ev.id}')">Open in Maps</span></div>
         </div>
         ${ev.description ? `<div class="card"><div style="font-size:14px;color:var(--text-muted);line-height:1.6;">${ev.description}</div></div>` : ''}
         ${ev.cost > 0 ? `<div style="color:var(--teal);font-size:15px;font-weight:700;">🎟 $${ev.cost.toFixed(2)} per person${ev.stripeLink ? ' — tap Going to pay online' : ''}</div>` : ''}
@@ -3998,6 +4006,31 @@ function buildTrainingSchedule() {
   const f = state.trainingScheduleForm;
   const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 
+  // Show existing schedule sessions (upcoming only)
+  const scheduledSessions = state.events
+    .filter(e => e.type === 'training' && e.fromSchedule)
+    .sort((a, b) => a.date > b.date ? 1 : -1);
+
+  // Prefill the form from the existing schedule (e.g. after an app reload)
+  // so a returning admin sees the current schedule instead of a blank form.
+  // Only runs when the form is untouched, so it never clobbers in-progress edits.
+  if (!f._prefilled && f.days.length === 0 && !f.commenceDate && scheduledSessions.length > 0) {
+    const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const daySet = new Set();
+    scheduledSessions.forEach(ev => {
+      const [y, mo, d] = ev.date.split('-').map(Number);
+      daySet.add(DAY_NAMES[new Date(y, mo - 1, d).getDay()]);
+    });
+    f.days = DAYS.filter(d => daySet.has(d));
+    const first = scheduledSessions[0];
+    f.startTime    = first.time || f.startTime;
+    f.finishTime   = first.finishTime || f.finishTime;
+    f.location     = first.location || '';
+    f.commenceDate = scheduledSessions[0].date;
+    f.concludeDate = scheduledSessions[scheduledSessions.length - 1].date;
+    f._prefilled = true;
+  }
+
   const dayPicker = `
     <div class="input-group">
       <label class="input-label">Training days</label>
@@ -4009,15 +4042,10 @@ function buildTrainingSchedule() {
     </div>`;
 
   const reminderOptions = [
-    { val: 'never',     label: 'Never' },
-    { val: 'dayBefore', label: 'Day before training' },
-    { val: 'dayOf',     label: 'Day of training' },
+    { val: 'never',      label: 'Never' },
+    { val: 'dayBefore',  label: 'Day before training' },
+    { val: 'dayOf',      label: 'Day of training' },
   ];
-
-  // Show existing schedule sessions (upcoming only)
-  const scheduledSessions = state.events
-    .filter(e => e.type === 'training' && e.fromSchedule)
-    .sort((a, b) => a.date > b.date ? 1 : -1);
 
   const sessionList = scheduledSessions.length > 0 ? `
     <div>
@@ -4052,13 +4080,19 @@ function buildTrainingSchedule() {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
           <div class="input-group">
             <label class="input-label">Start time</label>
-            <input class="input-field" type="time" value="${f.startTime}"
-              onchange="saveTSField('startTime', this.value)"/>
+            <div class="date-input-wrap">
+              <input class="input-field ${f.startTime ? '' : 'date-empty'}" type="time" value="${f.startTime}"
+                onchange="saveTSField('startTime', this.value); render(true)"/>
+              ${f.startTime ? '' : '<span class="date-placeholder">Select</span>'}
+            </div>
           </div>
           <div class="input-group">
             <label class="input-label">Finish time</label>
-            <input class="input-field" type="time" value="${f.finishTime}"
-              onchange="saveTSField('finishTime', this.value)"/>
+            <div class="date-input-wrap">
+              <input class="input-field ${f.finishTime ? '' : 'date-empty'}" type="time" value="${f.finishTime}"
+                onchange="saveTSField('finishTime', this.value); render(true)"/>
+              ${f.finishTime ? '' : '<span class="date-placeholder">Select</span>'}
+            </div>
           </div>
         </div>
 
@@ -4071,13 +4105,19 @@ function buildTrainingSchedule() {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
           <div class="input-group">
             <label class="input-label">Commence date</label>
-            <input class="input-field" type="date" value="${f.commenceDate}"
-              onchange="saveTSField('commenceDate', this.value)"/>
+            <div class="date-input-wrap">
+              <input class="input-field ${f.commenceDate ? '' : 'date-empty'}" type="date" value="${f.commenceDate}"
+                onchange="saveTSField('commenceDate', this.value); render(true)"/>
+              ${f.commenceDate ? '' : '<span class="date-placeholder">Select</span>'}
+            </div>
           </div>
           <div class="input-group">
             <label class="input-label">Conclude date</label>
-            <input class="input-field" type="date" value="${f.concludeDate}"
-              onchange="saveTSField('concludeDate', this.value)"/>
+            <div class="date-input-wrap">
+              <input class="input-field ${f.concludeDate ? '' : 'date-empty'}" type="date" value="${f.concludeDate}"
+                onchange="saveTSField('concludeDate', this.value); render(true)"/>
+              ${f.concludeDate ? '' : '<span class="date-placeholder">Select</span>'}
+            </div>
           </div>
         </div>
 
@@ -4085,9 +4125,9 @@ function buildTrainingSchedule() {
           <label class="input-label">Session reminders</label>
           <div style="display:flex;flex-direction:column;gap:8px;">
             ${reminderOptions.map(opt => `
-              <div class="notif-option" onclick="saveTSField('reminder','${opt.val}'); render()">
-                <div class="notif-checkbox ${f.reminder === opt.val ? 'checked' : ''}">
-                  ${f.reminder === opt.val ? `<svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="3" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>` : ''}
+              <div class="notif-option" onclick="toggleTSReminder('${opt.val}')">
+                <div class="notif-checkbox ${f.reminders.includes(opt.val) ? 'checked' : ''}">
+                  ${f.reminders.includes(opt.val) ? `<svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="3" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>` : ''}
                 </div>
                 <span class="notif-label">${opt.label}</span>
               </div>`).join('')}
@@ -5023,7 +5063,8 @@ function buildModal() {
     const ev = state.events.find(e => e.id === m.sessionId);
     if (!ev) return '';
     const isCancelled = ev.cancelled;
-    const notifyChecked = m.notifyCancel !== false; // default true
+    const notifyEditChecked = m.notifyEdit !== false;     // default true
+    const notifyCancelChecked = m.notifyCancel !== false; // default true
     return `<div class="modal-overlay" onclick="closeModal(event)">
       <div class="modal-sheet" style="max-height:85%;overflow-y:auto;">
         <div class="modal-handle"></div>
@@ -5056,27 +5097,33 @@ function buildModal() {
               </div>
               <input class="input-field" id="ts-modal-location" value="${ev.location}" placeholder="Location" style="margin-bottom:10px;font-size:13px;"/>
               <div class="notif-option" style="margin-bottom:10px;" onclick="toggleModalNotify()">
-                <div class="notif-checkbox ${notifyChecked ? 'checked' : ''}" id="ts-modal-notify-edit-box">
-                  ${notifyChecked ? `<svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="3" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>` : ''}
+                <div class="notif-checkbox ${notifyEditChecked ? 'checked' : ''}" id="ts-modal-notify-edit-box">
+                  ${notifyEditChecked ? `<svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="3" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>` : ''}
                 </div>
                 <span class="notif-label" style="font-size:13px;">Notify members of changes</span>
               </div>
-              <button class="btn-secondary" onclick="amendSession('${ev.id}')">Save changes</button>
+              <button class="btn-primary" onclick="amendSession('${ev.id}')">Save changes</button>
             </div>
 
             <div style="height:1px;background:var(--border);"></div>
 
-            <div>
-              <div class="input-label" style="margin-bottom:8px;color:var(--red);">Cancel this session</div>
-              <input class="input-field" id="ts-cancel-note" placeholder="Reason for cancellation (optional)" style="margin-bottom:10px;font-size:13px;"/>
-              <div class="notif-option" style="margin-bottom:10px;" onclick="toggleModalCancelNotify()">
-                <div class="notif-checkbox ${notifyChecked ? 'checked' : ''}" id="ts-modal-cancel-notify-box">
-                  ${notifyChecked ? `<svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="3" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>` : ''}
+            ${!m.showCancel ? `
+              <button style="background:none;border:none;color:var(--red);font-size:14px;font-weight:600;cursor:pointer;text-align:left;padding:4px 0;" onclick="showModalCancelSection()">
+                Cancel this session…
+              </button>
+            ` : `
+              <div>
+                <div class="input-label" style="margin-bottom:8px;color:var(--red);">Cancel this session</div>
+                <input class="input-field" id="ts-cancel-note" placeholder="Reason for cancellation (optional)" style="margin-bottom:10px;font-size:13px;"/>
+                <div class="notif-option" style="margin-bottom:10px;" onclick="toggleModalCancelNotify()">
+                  <div class="notif-checkbox ${notifyCancelChecked ? 'checked' : ''}" id="ts-modal-cancel-notify-box">
+                    ${notifyCancelChecked ? `<svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="3" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>` : ''}
+                  </div>
+                  <span class="notif-label" style="font-size:13px;">Notify members of cancellation</span>
                 </div>
-                <span class="notif-label" style="font-size:13px;">Notify members of cancellation</span>
+                <button class="btn-danger" onclick="cancelSession('${ev.id}')">Confirm cancellation</button>
               </div>
-              <button class="btn-danger" onclick="cancelSession('${ev.id}')">Cancel this session</button>
-            </div>
+            `}
 
           </div>
         `}
@@ -5123,6 +5170,7 @@ window.goHome = () => { state.activeTab = 'home'; navigate('home'); };
 
 window.goBack = goBack;
 window.setTab = setTab;
+window.render = render;
 
 window.doLogin = () => {
   state.loginForm.email = document.getElementById('login-email')?.value || '';
@@ -6195,6 +6243,20 @@ window.saveTSField = (key, value) => {
   state.trainingScheduleForm[key] = value;
 };
 
+window.toggleTSReminder = (val) => {
+  const f = state.trainingScheduleForm;
+  if (val === 'never') {
+    f.reminders = ['never'];
+  } else {
+    f.reminders = f.reminders.filter(r => r !== 'never');
+    const idx = f.reminders.indexOf(val);
+    if (idx >= 0) f.reminders.splice(idx, 1);
+    else f.reminders.push(val);
+    if (f.reminders.length === 0) f.reminders = ['never'];
+  }
+  render();
+};
+
 window.toggleTrainingDay = (day) => {
   const days = state.trainingScheduleForm.days;
   const idx = days.indexOf(day);
@@ -6253,7 +6315,7 @@ window.generateTrainingSchedule = () => {
         rsvp: {},
         cancelled: false,
         cancelNote: '',
-        reminder: f.reminder,
+        reminder: f.reminders.includes('never') ? [] : [...f.reminders],
       });
     }
     cur.setDate(cur.getDate() + 1);
@@ -6284,13 +6346,23 @@ window.generateTrainingSchedule = () => {
 };
 
 window.openTrainingSession = (id) => {
-  state.modal = { type: 'trainingSession', sessionId: id, notifyCancel: true };
+  state.modal = { type: 'trainingSession', sessionId: id, notifyEdit: true, notifyCancel: true, showCancel: false };
+  render();
+};
+
+window.openMaps = (id) => {
+  const ev = state.events.find(e => e.id === id);
+  if (!ev || !ev.location) return;
+  window.open('https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(ev.location), '_blank');
+};
+
+window.showModalCancelSection = () => {
+  if (state.modal) state.modal.showCancel = true;
   render();
 };
 
 window.toggleModalNotify = () => {
-  // Toggle both notify checkboxes in the modal (they share the same notifyCancel flag)
-  if (state.modal) state.modal.notifyCancel = !state.modal.notifyCancel;
+  if (state.modal) state.modal.notifyEdit = !state.modal.notifyEdit;
   render();
 };
 
@@ -6305,7 +6377,7 @@ window.amendSession = (id) => {
   ev.time       = document.getElementById('ts-modal-start')?.value    || ev.time;
   ev.finishTime = document.getElementById('ts-modal-finish')?.value   || ev.finishTime;
   ev.location   = document.getElementById('ts-modal-location')?.value || ev.location;
-  const notify  = state.modal?.notifyCancel !== false;
+  const notify  = state.modal?.notifyEdit !== false;
   state.modal = null;
   sb.update('events', { time: ev.time, finish_time: ev.finishTime, location: ev.location }, { id });
   if (notify) {
@@ -6888,19 +6960,20 @@ async function pollAll() {
             sendPushNotification(`Tomorrow: ${label}`, body, url);
           }
         }
-        // Training schedule reminder (dayBefore = same as oneDayBefore logic)
-        if (ev.fromSchedule && ev.reminder === 'dayBefore' && hoursUntil <= 25 && hoursUntil >= 23) {
+        // Training schedule reminders — reminder is an array (older sessions may have a string)
+        const trRem = Array.isArray(ev.reminder) ? ev.reminder : (ev.reminder ? [ev.reminder] : []);
+        if (ev.fromSchedule && trRem.includes('dayBefore') && hoursUntil <= 25 && hoursUntil >= 23) {
           const key = `${ev.id}_trainingDayBefore`;
           if (!_firedReminders.has(key)) {
             _firedReminders.add(key);
             sendPushNotification(`Training tomorrow`, body, url);
           }
         }
-        if (ev.fromSchedule && ev.reminder === 'weekBefore' && hoursUntil <= 169 && hoursUntil >= 167) {
-          const key = `${ev.id}_trainingWeekBefore`;
+        if (ev.fromSchedule && trRem.includes('dayOf') && hoursUntil <= 5 && hoursUntil >= 3) {
+          const key = `${ev.id}_trainingDayOf`;
           if (!_firedReminders.has(key)) {
             _firedReminders.add(key);
-            sendPushNotification(`Training in 1 week`, body, url);
+            sendPushNotification(`Training today`, body, url);
           }
         }
       });
