@@ -1547,14 +1547,14 @@ const CLUB_CONFIG = {
   clubDescription: 'A dynamic cricket club based in Melbourne\'s northern suburbs, committed to competitive cricket and building a strong community.',
   accentColor:     '#00b5b5',   // Laurimar teal
   accentDark:      '#008a8a',
-  homeGround:      'Club Oval — Recreation Reserve',
-  homeAddress:     '1 Club Drive, Your Suburb VIC 3000',
-  mapsUrl:         'https://maps.google.com',
-  registrationUrl: 'https://www.playhq.com',
-  shopUrl:         'https://www.playhq.com',
+  homeGround:      'Laurimar Recreation Reserve',
+  homeAddress:     'Montville Street, Doreen VIC 3754',
+  mapsUrl:         'https://maps.app.goo.gl/wxXAPogLwKxnuXSM6',
+  registrationUrl: 'https://www.playhq.com/cricket-australia/org/laurimar-cricket-club/b86d295c/register',
+  shopUrl:         'https://www.playhq.com/cricket-australia/org/laurimar-cricket-club/b86d295c/shop',
   contacts: [
-    { role: 'President', name: 'John Smith',  phone: '0400 123 456', email: 'president@genericcc.com' },
-    { role: 'Secretary', name: 'Jane Doe',    phone: '0400 789 012', email: 'secretary@genericcc.com' },
+    { role: 'President', name: 'Jason Merrett', phone: '0402 271 890', email: 'laurimarcc.president@gmail.com' },
+    { role: 'Secretary', name: 'Shannon Wells', phone: '0439 430 304', email: 'laurimar.cricketclub@gmail.com' },
   ],
   estYear: '2017',
   poweredBy: 'Lucidigi',
@@ -1566,7 +1566,14 @@ const CLUB_CONFIG = {
   // Restore any admin edits to CLUB_CONFIG from localStorage
   try {
     const saved = localStorage.getItem('clubapp_clubconfig');
-    if (saved) Object.assign(CLUB_CONFIG, JSON.parse(saved));
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // These keys are not admin-editable — code defaults must always win,
+      // otherwise stale localStorage copies keep overriding deployed updates.
+      delete parsed.registrationUrl;
+      delete parsed.shopUrl;
+      Object.assign(CLUB_CONFIG, parsed);
+    }
   } catch(e) {}
   const r = document.documentElement.style;
   r.setProperty('--accent', CLUB_CONFIG.accentColor);
@@ -1616,7 +1623,7 @@ const state = {
   instagramLoading: false,  // feed loading state
   loginForm: { email: '', password: '' },
   signupForm: { firstName: '', lastName: '', mobile: '', email: '', password: '', confirm: '' },
-  joinForm: { nickname: '', role: 'player', joinCode: '', loading: false },
+  joinForm: { nickname: '', role: 'player', loading: false },
   showNotifBanner: false,
   feedbackForm: { name: '', email: '', message: '' },
   createAnnouncementForm: {
@@ -2257,20 +2264,20 @@ async function handleLogin() {
 async function handleSignup() {
   const f = state.signupForm;
   if (!f.firstName || !f.lastName || !f.email || !f.password) {
-    state.error = 'Please fill in all fields.'; render(); return;
+    state.error = 'Please fill in all fields.'; render(true); return;
   }
   if (!isValidEmail(f.email)) {
-    state.error = 'Please enter a valid email address.'; render(); return;
+    state.error = 'Please enter a valid email address.'; render(true); return;
   }
   if (f.mobile && !isValidAuMobile(f.mobile)) {
-    state.error = 'Please enter a valid mobile number (9 digits, e.g. 412 345 678).'; render(); return;
+    state.error = 'Please enter a valid mobile number (9 digits, e.g. 412 345 678).'; render(true); return;
   }
   if (f.password !== f.confirm) {
-    state.error = 'Passwords do not match.'; render(); return;
+    state.error = 'Passwords do not match.'; render(true); return;
   }
   // Normalize the mobile number to full +61 form now, before it's persisted anywhere.
   const mobileE164 = toAuMobileE164(f.mobile);
-  state.loading = true; render();
+  state.loading = true; state.error = ''; render(true);
 
   // Create auth user
   const raw = await sb.auth_signUp(f.email, f.password, {
@@ -2280,7 +2287,7 @@ async function handleSignup() {
   });
   if (raw.error) {
     state.error = raw.error.message || 'Sign up failed.';
-    state.loading = false; render(); return;
+    state.loading = false; render(true); return;
   }
 
   // Supabase's raw GoTrue REST endpoint (no supabase-js) returns two different
@@ -2296,7 +2303,7 @@ async function handleSignup() {
   if (data.user?.identities?.length === 0) {
     // Email already registered
     state.error = 'An account with this email already exists. Please log in instead.';
-    state.loading = false; render(); return;
+    state.loading = false; render(true); return;
   }
 
   if (data.user && !data.user.confirmed_at && !data.user.email_confirmed_at) {
@@ -2313,7 +2320,7 @@ async function handleSignup() {
       mobile: mobileE164,
       userId: data.user.id,
     };
-    render();
+    render(true);
     startEmailConfirmPolling();
     return;
   }
@@ -2360,14 +2367,14 @@ async function handleSignup() {
 async function handleJoin() {
   if (!state.user) return;
   if (state.joinForm.loading) return;
-  const { nickname, role, joinCode, avatarPreview } = state.joinForm;
+  const { nickname, role, avatarPreview } = state.joinForm;
 
   state.joinForm.loading = true;
   render(true);
 
-  let finalRole = role === 'player' ? 'Player' : 'Supporter';
-  if (joinCode === 'ADMIN2025')   finalRole = 'Administrator';
-  else if (joinCode === 'CAPTAIN2025') finalRole = 'Captain';
+  // Special roles (Administrator/Captain) can only be assigned by an
+  // existing Administrator via Manage Users — never self-selected here.
+  const finalRole = role === 'player' ? 'Player' : 'Supporter';
 
   state.user.nickname = nickname || state.user.firstName;
   state.user.role = finalRole;
@@ -3029,7 +3036,7 @@ function buildSplash() {
 function buildLogin() {
   return `<div class="screen">
     <div style="padding:12px 16px 0;display:flex;align-items:center;">
-      <button onclick="navigate('login')" style="background:var(--surface);border:none;color:var(--text);padding:6px 14px 6px 10px;border-radius:20px;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+      <button onclick="navigate('splash')" style="background:var(--surface);border:none;color:var(--text);padding:6px 14px 6px 10px;border-radius:20px;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:4px;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
         Back
       </button>
@@ -3070,7 +3077,7 @@ function buildSignup() {
   const f = state.signupForm;
   return `<div class="screen">
     <div style="padding:12px 16px 0;display:flex;align-items:center;">
-      <button onclick="navigate('login')" style="background:var(--surface);border:none;color:var(--text);padding:6px 14px 6px 10px;border-radius:20px;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+      <button onclick="navigate('splash')" style="background:var(--surface);border:none;color:var(--text);padding:6px 14px 6px 10px;border-radius:20px;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:4px;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
         Back
       </button>
@@ -3100,7 +3107,12 @@ function buildSignup() {
           <div class="input-group"><label class="input-label">Confirm password</label><input class="input-field" id="su-cpw" type="password" placeholder="Confirm password" value="${f.confirm}"/></div>
           ${state.error ? `<div class="error-msg">${state.error}</div>` : ''}
         </div>
-        <button class="btn-primary" onclick="doSignup()">Create account</button>
+        <button class="btn-primary" id="signup-btn" onclick="doSignup()" ${state.loading ? 'disabled' : ''}>
+          ${state.loading
+            ? '<span style="display:inline-flex;align-items:center;gap:8px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 0.7s linear infinite"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>Creating account...</span>'
+            : 'Create account'
+          }
+        </button>
         <div class="auth-link" onclick="navigate('login')">Already have an account? Login</div>
       </div>
     </div>
@@ -3123,7 +3135,7 @@ function buildForgotPassword() {
           <div class="auth-heading">Reset password</div>
           <div class="auth-subheading">We'll send you a link to reset your password</div>
         </div>
-        <div class="input-group"><label class="input-label">Email</label><input class="input-field" id="reset-email" type="email" placeholder="Enter your email" id="fp-email"/></div>
+        <div class="input-group"><label class="input-label">Email</label><input class="input-field" id="reset-email" type="email" placeholder="Enter your email"/></div>
         <button class="btn-primary" onclick="showResetConfirm()">Send reset link</button>
         <div class="auth-link" onclick="navigate('login')">Back to login</div>
         <div id="reset-confirm" style="display:none;text-align:center;color:var(--teal);font-size:15px;padding:16px;background:rgba(78,205,196,0.1);border-radius:12px;">
@@ -3230,15 +3242,9 @@ function buildEmailConfirmed() {
 
 // ── JOIN CLUB ─────────────────────────────────────────────────────────────
 function buildJoinClub() {
-  const { role, joinCode, nickname } = state.joinForm;
+  const { role, nickname } = state.joinForm;
   return `<div class="screen">
-    <div style="padding:12px 16px 0;display:flex;align-items:center;">
-      <button onclick="navigate('signup')" style="background:var(--surface);border:none;color:var(--text);padding:6px 14px 6px 10px;border-radius:20px;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:4px;">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
-        Back
-      </button>
-    </div>
-    <div style="padding-top:8px;display:flex;align-items:center;justify-content:center;">${buildLogo(66)}</div>
+    <div style="padding-top:20px;display:flex;align-items:center;justify-content:center;">${buildLogo(66)}</div>
     <div class="screen-scroll">
       <div class="join-club-screen">
         <div style="text-align:center">
@@ -3265,17 +3271,15 @@ function buildJoinClub() {
             <div class="role-buttons">
               <button class="role-btn ${role==='player'?'active':''}" onclick="setJoinRole('player')">Player</button>
               <button class="role-btn ${role==='supporter'?'active':''}" onclick="setJoinRole('supporter')">Supporter</button>
-              <button class="role-btn ${role==='code'?'active':''}" onclick="setJoinRole('code')">Use Join Code</button>
             </div>
           </div>
-          ${role==='code' ? `<div class="input-group">
-            <label class="input-label">Join code</label>
-            <input class="input-field" id="join-code" placeholder="Enter code for special roles" value="${joinCode}"/>
-            <div style="font-size:12px;color:var(--text-dim);">Enter your code to join as Administrator or Captain of ${CLUB_CONFIG.clubShortName}</div>
-          </div>` : ''}
+
         </div>
         <button class="btn-primary" style="width:100%" onclick="doJoin()" ${state.joinForm.loading ? 'disabled' : ''}>
-          ${state.joinForm.loading ? 'Joining…' : 'Join Club'}
+          ${state.joinForm.loading
+            ? '<span style="display:inline-flex;align-items:center;gap:8px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 0.7s linear infinite"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>Joining...</span>'
+            : 'Join Club'
+          }
         </button>
       </div>
     </div>
@@ -5146,7 +5150,12 @@ window.doSignup = () => {
   state.signupForm.email = (document.getElementById('su-email')?.value || '').trim();
   state.signupForm.password = document.getElementById('su-pw')?.value || '';
   state.signupForm.confirm = document.getElementById('su-cpw')?.value || '';
-  handleSignup();
+  handleSignup().catch(err => {
+    state.error = 'An unexpected error occurred. Please try again.';
+    state.loading = false;
+    render(true);
+    console.error('Signup error:', err);
+  });
 };
 
 let _emailConfirmInterval = null;
@@ -5266,7 +5275,6 @@ window.completeSignupAfterConfirm = async () => {
 
 window.doJoin = () => {
   state.joinForm.nickname = document.getElementById('join-nick')?.value || '';
-  state.joinForm.joinCode = document.getElementById('join-code')?.value || '';
   handleJoin();
 };
 
@@ -5278,7 +5286,7 @@ window.handleSetNewPassword = async () => {
   if (newPass.length < 6) { state.error = 'Password must be at least 6 characters.'; render(true); return; }
   if (newPass !== confirmPass) { state.error = 'Passwords do not match.'; render(true); return; }
   const btn = document.querySelector('#set-password-screen .btn-primary');
-  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span style="display:inline-flex;align-items:center;gap:8px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 0.7s linear infinite"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>Saving...</span>'; }
   try {
     const data = await sb.auth_updatePassword(newPass);
     if (data.error) {
@@ -5308,7 +5316,7 @@ window.showResetConfirm = async () => {
     return;
   }
   const btn = document.querySelector('#forgot-password-screen .btn-primary');
-  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span style="display:inline-flex;align-items:center;gap:8px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 0.7s linear infinite"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>Sending...</span>'; }
   try {
     await sb.auth_recover(email);
   } catch(e) {}
@@ -6135,7 +6143,13 @@ window.cancelClubInfoEdit = () => {
   // Restore from localStorage in case unsaved changes dirtied CLUB_CONFIG in memory
   try {
     const saved = localStorage.getItem('clubapp_clubconfig');
-    if (saved) Object.assign(CLUB_CONFIG, JSON.parse(saved));
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // Not admin-editable — code defaults must always win (see applyTheme)
+      delete parsed.registrationUrl;
+      delete parsed.shopUrl;
+      Object.assign(CLUB_CONFIG, parsed);
+    }
   } catch(e) {}
   state.clubInfoEditing = false;
   render();
