@@ -1872,6 +1872,7 @@ function rowToEvent(r) {
     cancelled: r.cancelled || false,
     cancelNote: r.cancel_note || '',
     fromSchedule: r.from_schedule || false,
+    reminder: Array.isArray(r.reminder) ? r.reminder : [],
     playHQId: r.play_hq_id || null,
     notifications: r.notifications || {},
     rsvp: {},   // populated separately
@@ -1900,6 +1901,7 @@ function eventToRow(ev) {
     cancelled: ev.cancelled || false,
     cancel_note: ev.cancelNote || null,
     from_schedule: ev.fromSchedule || false,
+    reminder: Array.isArray(ev.reminder) ? ev.reminder : [],
     play_hq_id: ev.playHQId || null,
     notifications: ev.notifications || {},
   };
@@ -6332,6 +6334,7 @@ window.generateTrainingSchedule = () => {
     cost: 0,
     cancelled: false,
     from_schedule: true,
+    reminder: s.reminder,
   })));
   state.error = '';
   // Navigate to Training tab in Events
@@ -6843,6 +6846,26 @@ let _lastReminderCheck = 0;
 // Tracks which reminder keys have already fired this session: Set of strings like `${eventId}_oneDayBefore`
 const _firedReminders = new Set();
 
+// Cross-device reminder dedupe. Every online device runs this same 5-minute
+// check, so without a shared claim, each one would send its own push.
+// reminders_sent.reminder_key is a primary key — only the device whose
+// insert lands first gets a 201; everyone else gets a 409 and skips the push.
+async function claimReminder(key) {
+  if (_firedReminders.has(key)) return false; // already claimed this session
+  _firedReminders.add(key);
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/reminders_sent`, {
+      method: 'POST',
+      headers: { ...sb._h(), 'Prefer': 'return=minimal' },
+      body: JSON.stringify({ reminder_key: key }),
+    });
+    return r.status === 201;
+  } catch(e) {
+    _firedReminders.delete(key); // network hiccup — allow a retry next check
+    return false;
+  }
+}
+
 async function pollAll() {
   if (!state.user || !sb._token) return;
 
@@ -6925,12 +6948,12 @@ async function pollAll() {
     _lastReminderCheck = now;
     try {
       const nowMs = Date.now();
-      state.events.forEach(ev => {
-        if (!ev.date || ev.cancelled) return;
+      for (const ev of state.events) {
+        if (!ev.date || ev.cancelled) continue;
         // Build event datetime in ms (use noon if no time set, to avoid timezone edge cases)
         const timeStr = ev.time || '12:00';
         const evMs = new Date(`${ev.date}T${timeStr}`).getTime();
-        if (isNaN(evMs) || evMs < nowMs) return; // past events — skip
+        if (isNaN(evMs) || evMs < nowMs) continue; // past events — skip
 
         const msUntil = evMs - nowMs;
         const hoursUntil = msUntil / (1000 * 60 * 60);
@@ -6944,37 +6967,29 @@ async function pollAll() {
 
         // 1 week before (168h window: between 169h and 167h out)
         if (notif.oneWeekBefore && hoursUntil <= 169 && hoursUntil >= 167) {
-          const key = `${ev.id}_oneWeekBefore`;
-          if (!_firedReminders.has(key)) {
-            _firedReminders.add(key);
+          if (await claimReminder(`${ev.id}_oneWeekBefore`)) {
             sendPushNotification(`Reminder: ${label} in 1 week`, body, url);
           }
         }
         // 1 day before (24h window: between 25h and 23h out)
         if (notif.oneDayBefore && hoursUntil <= 25 && hoursUntil >= 23) {
-          const key = `${ev.id}_oneDayBefore`;
-          if (!_firedReminders.has(key)) {
-            _firedReminders.add(key);
+          if (await claimReminder(`${ev.id}_oneDayBefore`)) {
             sendPushNotification(`Tomorrow: ${label}`, body, url);
           }
         }
         // Training schedule reminders — reminder is an array (older sessions may have a string)
         const trRem = Array.isArray(ev.reminder) ? ev.reminder : (ev.reminder ? [ev.reminder] : []);
         if (ev.fromSchedule && trRem.includes('dayBefore') && hoursUntil <= 25 && hoursUntil >= 23) {
-          const key = `${ev.id}_trainingDayBefore`;
-          if (!_firedReminders.has(key)) {
-            _firedReminders.add(key);
+          if (await claimReminder(`${ev.id}_trainingDayBefore`)) {
             sendPushNotification(`Training tomorrow`, body, url);
           }
         }
         if (ev.fromSchedule && trRem.includes('dayOf') && hoursUntil <= 5 && hoursUntil >= 3) {
-          const key = `${ev.id}_trainingDayOf`;
-          if (!_firedReminders.has(key)) {
-            _firedReminders.add(key);
+          if (await claimReminder(`${ev.id}_trainingDayOf`)) {
             sendPushNotification(`Training today`, body, url);
           }
         }
-      });
+      }
     } catch(e) { console.log('Reminder check error:', e); }
   }
 
