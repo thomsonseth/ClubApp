@@ -1571,18 +1571,10 @@ const CLUB_CONFIG = {
 
 // Apply accent colour to CSS variables at runtime
 (function applyTheme() {
-  // Restore any admin edits to CLUB_CONFIG from localStorage
-  try {
-    const saved = localStorage.getItem('clubapp_clubconfig');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      // These keys are not admin-editable — code defaults must always win,
-      // otherwise stale localStorage copies keep overriding deployed updates.
-      delete parsed.registrationUrl;
-      delete parsed.shopUrl;
-      Object.assign(CLUB_CONFIG, parsed);
-    }
-  } catch(e) {}
+  // Club Info is no longer admin-editable — CLUB_CONFIG below is always the
+  // source of truth. Clear any override saved by a device that used the old
+  // edit screen, so stale local edits can't keep shadowing deployed updates.
+  try { localStorage.removeItem('clubapp_clubconfig'); } catch(e) {}
   const r = document.documentElement.style;
   r.setProperty('--accent', CLUB_CONFIG.accentColor);
   r.setProperty('--teal',   CLUB_CONFIG.accentColor);
@@ -1590,9 +1582,6 @@ const CLUB_CONFIG = {
   r.setProperty('--teal-dark',   CLUB_CONFIG.accentDark);
 })();
 
-function persistClubConfig() {
-  try { localStorage.setItem('clubapp_clubconfig', JSON.stringify(CLUB_CONFIG)); } catch(e) {}
-}
 
 // ── STATE ──────────────────────────────────────────────────────────────
 const state = {
@@ -1667,7 +1656,6 @@ const state = {
   },
   activeTrainingSessionId: null,
   editingEventId: null,
-  clubInfoEditing: false,     // admin edit mode for Club Info
   importFixture: {
     apiKey: '',
     orgId: '',
@@ -1847,6 +1835,7 @@ function profileToUser(p) {
     role: p.role || 'Player',
     avatar: p.avatar_url || null,
     onboardingComplete: p.onboarding_complete === true,
+    notifyNewMembers: p.notify_new_members !== false,
   };
 }
 
@@ -2408,6 +2397,20 @@ async function handleJoin() {
   const u = state.users.find(u => u.id === state.user.id);
   if (u) Object.assign(u, state.user);
 
+  // Notify Admins who have opted in — excludes the joiner themself even if
+  // they happen to hold the Administrator role (e.g. Seth's own test signups).
+  const adminIds = state.users
+    .filter(a => a.role === 'Administrator' && a.notifyNewMembers !== false && a.id !== state.user.id)
+    .map(a => a.id);
+  if (adminIds.length) {
+    sendPushNotificationToUsers(
+      'New member joined',
+      `${state.user.firstName} ${state.user.lastName} just joined as ${finalRole}`,
+      `${CLUB_CONFIG.appUrl}/#screen=userlist`,
+      adminIds,
+    );
+  }
+
   await loadAppData();
   state.joinForm.loading = false;
   state.activeTab = 'home';
@@ -2636,7 +2639,6 @@ window.goToEventsTab = function(tab) {
 
 function goBack() {
   if (state.screen === 'createevent') state.editingEventId = null;
-  if (state.screen === 'clubinfo') state.clubInfoEditing = false;
   const back = state.prevScreen || 'home';
   state.screen = back;
   state.prevScreen = null;
@@ -4781,122 +4783,37 @@ function buildProfile() {
 
 // ── CLUB INFO ─────────────────────────────────────────────────────────────
 function buildClubInfo() {
-  const isAdmin = state.user?.role === 'Administrator';
-  const editing = state.clubInfoEditing && isAdmin;
-
-  // ── READ VIEW ──
-  if (!editing) {
-    return `<div class="screen">
-      ${buildTopBanner({ title: 'Club Info', showBack: true })}
-      <div class="screen-scroll">
-        <div class="club-info-content">
-          <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:8px 0;">
-            ${buildLogo(120)}
-            <div style="font-size:22px;font-weight:800;color:var(--text);text-align:center;">${CLUB_CONFIG.clubName}</div>
-            <div style="font-size:14px;color:var(--text-muted);text-align:center;line-height:1.6;">${CLUB_CONFIG.clubDescription}</div>
-          </div>
-          <div>
-            <div class="section-title">Home Ground</div>
-            <div class="map-card">
-              <div class="map-addr">
-                ${icons.mappin}
-                <div class="map-addr-text">${CLUB_CONFIG.homeGround}<br/>${CLUB_CONFIG.homeAddress}</div>
-              </div>
-              <div class="open-maps" onclick="window.open('${CLUB_CONFIG.mapsUrl}','_blank')">Open in Maps</div>
-            </div>
-          </div>
-          <div>
-            <div class="section-title">Key Contacts</div>
-            <div style="display:flex;flex-direction:column;gap:10px;">
-              ${CLUB_CONFIG.contacts.map(c => `
-              <div class="contact-card">
-                <div class="contact-role">${c.role}</div>
-                <div class="contact-name">${c.name}</div>
-                <div class="contact-detail">${icons.phone} ${c.phone}</div>
-                <div class="contact-detail">${icons.mail} ${c.email}</div>
-              </div>`).join('')}
-            </div>
-          </div>
-          ${isAdmin ? `<button class="btn-secondary" onclick="startClubInfoEdit()" style="display:flex;align-items:center;justify-content:center;gap:6px;color:var(--accent);border-color:var(--accent);">
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-  Edit Club Info
-</button>` : ''}
-        </div>
-      </div>
-    </div>`;
-  }
-
-  // ── EDIT VIEW (admin only) ──
-  const contactFields = CLUB_CONFIG.contacts.map((c, i) => `
-    <div class="card" style="display:flex;flex-direction:column;gap:10px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;">
-        <div style="font-size:13px;font-weight:700;color:var(--accent);">Contact ${i + 1}</div>
-        <button onclick="removeClubContact(${i})" style="background:none;border:none;color:var(--red);font-size:13px;cursor:pointer;font-weight:600;">Remove</button>
-      </div>
-      <div class="input-group"><label class="input-label">Role</label>
-        <input class="input-field" id="ci-role-${i}" value="${c.role}" oninput="updateClubContact(${i},'role',this.value)" placeholder="e.g. President"/></div>
-      <div class="input-group"><label class="input-label">Name</label>
-        <input class="input-field" id="ci-name-${i}" value="${c.name}" oninput="updateClubContact(${i},'name',this.value)" placeholder="Full name"/></div>
-      <div class="input-group"><label class="input-label">Phone</label>
-        <input class="input-field" id="ci-phone-${i}" type="tel" value="${c.phone}" oninput="updateClubContact(${i},'phone',this.value)" placeholder="0400 000 000"/></div>
-      <div class="input-group"><label class="input-label">Email</label>
-        <input class="input-field" id="ci-email-${i}" type="email" value="${c.email}" oninput="updateClubContact(${i},'email',this.value)" placeholder="email@club.com"/></div>
-    </div>`).join('');
-
   return `<div class="screen">
-    ${buildTopBanner({ title: 'Edit Club Info', showBack: true })}
+    ${buildTopBanner({ title: 'Club Info', showBack: true })}
     <div class="screen-scroll">
       <div class="club-info-content">
-
-        <div class="input-group">
-          <label class="input-label">Club Name</label>
-          <input class="input-field" id="ci-clubname" value="${CLUB_CONFIG.clubName}"
-            oninput="CLUB_CONFIG.clubName=this.value"/>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:8px 0;">
+          ${buildLogo(120)}
+          <div style="font-size:22px;font-weight:800;color:var(--text);text-align:center;">${CLUB_CONFIG.clubName}</div>
+          <div style="font-size:14px;color:var(--text-muted);text-align:center;line-height:1.6;">${CLUB_CONFIG.clubDescription}</div>
         </div>
-
-        <div class="input-group">
-          <label class="input-label">Short Name</label>
-          <input class="input-field" id="ci-shortname" value="${CLUB_CONFIG.clubShortName}"
-            oninput="CLUB_CONFIG.clubShortName=this.value"/>
+        <div>
+          <div class="section-title">Home Ground</div>
+          <div class="map-card">
+            <div class="map-addr">
+              ${icons.mappin}
+              <div class="map-addr-text">${CLUB_CONFIG.homeGround}<br/>${CLUB_CONFIG.homeAddress}</div>
+            </div>
+            <div class="open-maps" onclick="window.open('${CLUB_CONFIG.mapsUrl}','_blank')">Open in Maps</div>
+          </div>
         </div>
-
-        <div class="input-group">
-          <label class="input-label">Club Description</label>
-          <textarea class="input-field" id="ci-desc" style="min-height:80px;"
-            oninput="CLUB_CONFIG.clubDescription=this.value">${CLUB_CONFIG.clubDescription}</textarea>
+        <div>
+          <div class="section-title">Key Contacts</div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            ${CLUB_CONFIG.contacts.map(c => `
+            <div class="contact-card">
+              <div class="contact-role">${c.role}</div>
+              <div class="contact-name">${c.name}</div>
+              <div class="contact-detail">${icons.phone} ${c.phone}</div>
+              <div class="contact-detail">${icons.mail} ${c.email}</div>
+            </div>`).join('')}
+          </div>
         </div>
-
-        <div class="section-title" style="font-size:16px;">Home Ground</div>
-
-        <div class="input-group">
-          <label class="input-label">Ground Name</label>
-          <input class="input-field" id="ci-ground" value="${CLUB_CONFIG.homeGround}"
-            oninput="CLUB_CONFIG.homeGround=this.value"/>
-        </div>
-
-        <div class="input-group">
-          <label class="input-label">Address</label>
-          <input class="input-field" id="ci-addr" value="${CLUB_CONFIG.homeAddress}"
-            oninput="CLUB_CONFIG.homeAddress=this.value"/>
-        </div>
-
-        <div class="input-group">
-          <label class="input-label">Google Maps URL</label>
-          <input class="input-field" id="ci-maps" value="${CLUB_CONFIG.mapsUrl}"
-            oninput="CLUB_CONFIG.mapsUrl=this.value" placeholder="https://maps.google.com/?q=..."/>
-        </div>
-
-        <div class="section-title" style="font-size:16px;">Key Contacts</div>
-        <div style="display:flex;flex-direction:column;gap:12px;">
-          ${contactFields}
-        </div>
-
-        <button class="btn-secondary" onclick="addClubContact()">+ Add contact</button>
-
-        <button class="btn-primary" onclick="saveClubInfo()">Save changes</button>
-        <button class="btn-secondary" onclick="cancelClubInfoEdit()">Cancel</button>
-
-        <div style="height:8px;"></div>
       </div>
     </div>
   </div>`;
@@ -4929,6 +4846,7 @@ function buildShop() {
 function buildSettings() {
   const t = state.toggles;
   const f = state.feedbackForm;
+  const isAdmin = state.user?.role === 'Administrator';
   return `<div class="screen">
     ${buildTopBanner({ title: 'Settings', showBack: true })}
     <div class="screen-scroll">
@@ -4941,6 +4859,7 @@ function buildSettings() {
             <div class="toggle-row"><span class="toggle-label">Announcements</span><div class="toggle ${t.announcements?'on':''}" onclick="toggleSetting('announcements')"></div></div>
             <div class="toggle-row"><span class="toggle-label">Team selection</span><div class="toggle ${t.teamSelection?'on':''}" onclick="toggleSetting('teamSelection')"></div></div>
             <div class="toggle-row"><span class="toggle-label">Training sessions</span><div class="toggle ${t.training?'on':''}" onclick="toggleSetting('training')"></div></div>
+            ${isAdmin ? `<div class="toggle-row"><span class="toggle-label">New member joined</span><div class="toggle ${state.user.notifyNewMembers?'on':''}" onclick="toggleNewMemberNotify()"></div></div>` : ''}
           </div>
         </div>
         <div>
@@ -6070,6 +5989,15 @@ window.toggleSetting = (key) => {
   render();
 };
 
+window.toggleNewMemberNotify = () => {
+  if (!state.user) return;
+  state.user.notifyNewMembers = !state.user.notifyNewMembers;
+  const u = state.users.find(u => u.id === state.user.id);
+  if (u) u.notifyNewMembers = state.user.notifyNewMembers;
+  sb.update('profiles', { notify_new_members: state.user.notifyNewMembers }, { id: state.user.id });
+  render();
+};
+
 window.submitFeedback = async () => {
   const name    = document.getElementById('fb-name')?.value.trim()  || '';
   const email   = document.getElementById('fb-email')?.value.trim() || '';
@@ -6181,64 +6109,7 @@ function attachEvents() {
   if (loginPw) loginPw.addEventListener('keydown', e => { if(e.key==='Enter') window.doLogin(); });
 }
 
-// ── CLUB INFO EDIT HANDLERS ───────────────────────────────────────────────
-window.startClubInfoEdit = () => {
-  state.clubInfoEditing = true;
-  render();
-};
-
-window.cancelClubInfoEdit = () => {
-  // Restore from localStorage in case unsaved changes dirtied CLUB_CONFIG in memory
-  try {
-    const saved = localStorage.getItem('clubapp_clubconfig');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      // Not admin-editable — code defaults must always win (see applyTheme)
-      delete parsed.registrationUrl;
-      delete parsed.shopUrl;
-      Object.assign(CLUB_CONFIG, parsed);
-    }
-  } catch(e) {}
-  state.clubInfoEditing = false;
-  render();
-};
-
-window.updateClubContact = (idx, field, value) => {
-  if (CLUB_CONFIG.contacts[idx]) CLUB_CONFIG.contacts[idx][field] = value;
-};
-
-window.removeClubContact = (idx) => {
-  CLUB_CONFIG.contacts.splice(idx, 1);
-  render();
-};
-
-window.addClubContact = () => {
-  CLUB_CONFIG.contacts.push({ role: '', name: '', phone: '', email: '' });
-  render();
-};
-
-window.saveClubInfo = () => {
-  // Explicitly read all DOM fields before saving — oninput on module-scoped
-  // CLUB_CONFIG can silently fail in inline handlers
-  const groundEl   = document.getElementById('ci-ground');
-  const addrEl     = document.getElementById('ci-addr');
-  const mapsEl     = document.getElementById('ci-maps');
-  const descEl     = document.getElementById('ci-desc');
-  const nameEl      = document.getElementById('ci-clubname');
-  const shortNameEl = document.getElementById('ci-shortname');
-
-  if (groundEl)   CLUB_CONFIG.homeGround      = groundEl.value.trim();
-  if (addrEl)     CLUB_CONFIG.homeAddress     = addrEl.value.trim();
-  if (mapsEl)     CLUB_CONFIG.mapsUrl         = mapsEl.value.trim();
-  if (descEl)     CLUB_CONFIG.clubDescription = descEl.value.trim();
-  if (nameEl)     CLUB_CONFIG.clubName        = nameEl.value.trim();
-  if (shortNameEl) CLUB_CONFIG.clubShortName  = shortNameEl.value.trim();
-
-  persistClubConfig();
-  state.clubInfoEditing = false;
-  showToast('Club info saved!');
-  render(true);
-};
+// ── CLUB INFO ─── read-only, hard-coded via CLUB_CONFIG. No admin edit path.
 window.saveTSField = (key, value) => {
   state.trainingScheduleForm[key] = value;
 };
