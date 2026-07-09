@@ -193,6 +193,7 @@
     transition: opacity 0.2s;
   }
   .btn-primary:hover { opacity: 0.9; }
+  .btn-primary:disabled { opacity: 0.35; cursor: not-allowed; }
 
   .btn-secondary {
     width: 100%;
@@ -1180,6 +1181,71 @@
 
   .modal-title { font-size: 20px; font-weight: 700; color: var(--text); text-align: center; }
   .modal-body { font-size: 15px; color: var(--text-muted); text-align: center; line-height: 1.5; }
+
+  /* ── DATE & TIME WHEEL PICKER ── */
+  .dt-summary-field {
+    display: flex; align-items: center; justify-content: space-between;
+    cursor: pointer;
+  }
+  .dt-summary-field svg { color: var(--text-muted); flex-shrink: 0; }
+  .dt-pill {
+    background: var(--accent); color: #04231f; font-weight: 700;
+    font-size: 15px; padding: 10px 18px; border-radius: 12px;
+    text-align: center; margin-bottom: 4px;
+    transition: background .15s, color .15s;
+  }
+  .dt-pill-error { background: var(--surface2); color: var(--orange); }
+  .dt-error-box {
+    display: flex; align-items: flex-start; gap: 8px;
+    background: rgba(240,150,58,0.12);
+    color: var(--orange);
+    border-radius: 12px;
+    padding: 12px 14px;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .wheel-picker-columns {
+    position: relative;
+    display: flex;
+    height: 220px;
+    gap: 4px;
+  }
+  .wheel-center-highlight {
+    position: absolute; top: 50%; left: 0; right: 0; height: 44px;
+    transform: translateY(-50%);
+    background: rgba(255,255,255,0.06);
+    border-radius: 12px;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .wheel-col {
+    flex: 1;
+    overflow-y: scroll;
+    scroll-snap-type: y mandatory;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    position: relative;
+    z-index: 1;
+  }
+  .wheel-col::-webkit-scrollbar { display: none; }
+  .wheel-col-date { flex: 2.2; }
+  .wheel-spacer { height: 88px; flex-shrink: 0; }
+  .wheel-item {
+    height: 44px;
+    display: flex; align-items: center; justify-content: center;
+    scroll-snap-align: center;
+    font-size: 18px; font-weight: 500;
+    color: var(--text-dim);
+    opacity: 0.4;
+    transition: opacity .15s, color .15s, font-weight .15s;
+    white-space: nowrap;
+  }
+  .wheel-item.wheel-item-active {
+    color: var(--text);
+    opacity: 1;
+    font-weight: 700;
+  }
 
   /* ── REGISTRATION / SHOP WEBVIEW ── */
   .webview-screen {
@@ -2913,8 +2979,10 @@ function isUserTyping() {
 }
 
 function render(force = false) {
-  // Never rebuild the DOM while the user is typing — it destroys focus
-  if (!force && isUserTyping()) return;
+  // Never rebuild the DOM while the user is typing, or mid-gesture on the
+  // date/time wheel picker — a background poll landing mid-scroll would
+  // otherwise wipe out the picker's scroll position under the user's thumb.
+  if (!force && (isUserTyping() || state.modal?.type === 'datetime')) return;
 
   // Save scroll position of any scrollable area before rebuild
   const scrollEl = document.querySelector('.screen-scroll');
@@ -3951,22 +4019,18 @@ function buildCreateEvent() {
             oninput="saveCEField('title', this.value)"/>
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-          <div class="input-group">
-            <label class="input-label">Date</label>
-            <input class="input-field" id="ce-date" type="date" value="${f.date}"
-              onchange="saveCEField('date', this.value)"/>
+        <div class="input-group">
+          <label class="input-label">Date &amp; start time</label>
+          <div class="input-field dt-summary-field" onclick="openDateTimePicker('start')">
+            <span style="${f.date ? '' : 'color:var(--text-dim);'}">${buildDateTimeSummary(f.date, f.time)}</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
           </div>
-          <div class="input-group" style="visibility:hidden;"></div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-          <div class="input-group">
-            <label class="input-label">Start time</label>
-            ${buildTimeSelect('ce-time', f.time, 'saveCEField(\'time\', this.value)')}
-          </div>
-          <div class="input-group">
-            <label class="input-label">Finish time</label>
-            ${buildTimeSelect('ce-finishtime', f.finishTime || '', 'saveCEField(\'finishTime\', this.value)')}
+        <div class="input-group">
+          <label class="input-label">Finish time</label>
+          <div class="input-field dt-summary-field" onclick="openDateTimePicker('finish')">
+            <span style="${f.finishTime ? '' : 'color:var(--text-dim);'}">${buildTimeOnlySummary(f.finishTime)}</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14.5"/></svg>
           </div>
         </div>
 
@@ -4946,6 +5010,7 @@ function buildUserDetail() {
 // ── MODALS ────────────────────────────────────────────────────────────────
 function buildModal() {
   const m = state.modal;
+  if (m.type === 'datetime') return buildDateTimeWheelModal();
   if (m.type === 'logout') {
     return `<div class="modal-overlay" onclick="closeModal(event)">
       <div class="modal-sheet">
@@ -5078,6 +5143,324 @@ function buildModal() {
     return `<div style="position:absolute;bottom:90px;left:50%;transform:translateX(-50%);background:var(--teal);color:#000;padding:12px 24px;border-radius:24px;font-size:14px;font-weight:700;z-index:60;white-space:nowrap;">${m.message}</div>`;
   }
   return '';
+}
+
+// ── DATE & TIME WHEEL PICKER ────────────────────────────────────────────
+// A combined scrolling picker for the event start (date + time) and finish
+// (time only — same calendar day as start, per how events are modelled
+// elsewhere in the app). Scroll position drives the value; only Confirm/
+// Cancel trigger a full render() — mid-scroll updates are done via direct
+// DOM writes so the wheel's own scroll state is never disturbed.
+const WHEEL_ITEM_H = 44;
+let _wheelDateItems = [];
+const _wheelHourItems = ['1','2','3','4','5','6','7','8','9','10','11','12'];
+const _wheelMinuteItems = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
+const _wheelAmpmItems = ['AM', 'PM'];
+
+// Build the scrollable date range: a year back to two years forward from
+// today, plus the currently-set date if it falls outside that window (e.g.
+// editing an older event) so the picker never opens without its own value.
+function buildWheelDateItems(includeDateStr) {
+  const items = [];
+  const today = new Date(); today.setHours(0,0,0,0);
+  const start = new Date(today); start.setDate(start.getDate() - 365);
+  const end   = new Date(today); end.setDate(end.getDate() + 730);
+
+  if (includeDateStr) {
+    const [y,mo,d] = includeDateStr.split('-').map(Number);
+    const incl = new Date(y, mo-1, d);
+    if (incl < start) start.setTime(incl.getTime());
+    if (incl > end) end.setTime(incl.getTime());
+  }
+
+  const cur = new Date(start);
+  while (cur <= end) {
+    const yyyy = cur.getFullYear();
+    const mm = String(cur.getMonth()+1).padStart(2,'0');
+    const dd = String(cur.getDate()).padStart(2,'0');
+    const value = `${yyyy}-${mm}-${dd}`;
+    const isToday = cur.getTime() === today.getTime();
+    const label = isToday ? 'Today' : cur.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' });
+    items.push({ value, label });
+    cur.setDate(cur.getDate() + 1);
+  }
+  return items;
+}
+
+function to12Hour(time24) {
+  if (!time24) return { h: '7', m: '00', ap: 'PM' };
+  const [hStr, mStr] = time24.split(':');
+  const h24 = parseInt(hStr, 10);
+  const m = (mStr || '00').padStart(2,'0');
+  if (h24 === 0)       return { h: '12', m, ap: 'AM' };
+  if (h24 < 12)        return { h: String(h24), m, ap: 'AM' };
+  if (h24 === 12)      return { h: '12', m, ap: 'PM' };
+  return { h: String(h24-12), m, ap: 'PM' };
+}
+
+function to24HourStr(h12, minute, ampm) {
+  let h = parseInt(h12, 10);
+  if (ampm === 'AM') { if (h === 12) h = 0; }
+  else { if (h !== 12) h += 12; }
+  return `${String(h).padStart(2,'0')}:${String(minute).padStart(2,'0')}`;
+}
+
+function buildDateTimeSummary(dateVal, time24) {
+  if (!dateVal) return 'Select date & start time';
+  const [y,m,d] = dateVal.split('-').map(Number);
+  const dt = new Date(y, m-1, d);
+  const dayLabel = dt.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' });
+  const { h, m: mins, ap } = to12Hour(time24 || '19:00');
+  return `${dayLabel} at ${h}:${mins} ${ap}`;
+}
+
+function buildTimeOnlySummary(time24) {
+  if (!time24) return 'Select finish time';
+  const { h, m, ap } = to12Hour(time24);
+  return `${h}:${m} ${ap}`;
+}
+
+function dateToLocalStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// Rounds UP to the next 30-minute slot — e.g. 10:35pm → 11:00pm. Always
+// strictly in the future relative to `date`, even if it's exactly on a
+// 30-minute boundary already.
+function roundUpToNext30(date = new Date()) {
+  const d = new Date(date);
+  const totalMin = d.getHours() * 60 + d.getMinutes();
+  const nextSlot = Math.ceil((totalMin + 1) / 30) * 30;
+  d.setHours(0, 0, 0, 0);
+  d.setMinutes(nextSlot); // JS Date auto-rolls into the next day if this overflows 1440
+  return d;
+}
+
+function timeStrFromDate(d) {
+  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
+function fullDateTimeMs(dateStr, time24) {
+  if (!dateStr || !time24) return null;
+  const [y,mo,d] = dateStr.split('-').map(Number);
+  const [h,mi] = time24.split(':').map(Number);
+  return new Date(y, mo-1, d, h, mi).getTime();
+}
+
+window.openDateTimePicker = (field = 'start') => {
+  const f = state.createEventForm;
+  let tempDate, h, m, ap;
+
+  if (field === 'start') {
+    if (f.date && f.time) {
+      tempDate = f.date;
+      ({ h, m, ap } = to12Hour(f.time));
+    } else {
+      const rounded = roundUpToNext30();
+      tempDate = dateToLocalStr(rounded);
+      ({ h, m, ap } = to12Hour(timeStrFromDate(rounded)));
+    }
+  } else {
+    // Finish time is modelled as same calendar day as the event's start.
+    tempDate = f.date || dateToLocalStr(new Date());
+    if (f.finishTime) {
+      ({ h, m, ap } = to12Hour(f.finishTime));
+    } else if (f.time) {
+      // Default finish = start + 1 hour, a reasonable default duration.
+      const [sh, sm] = f.time.split(':').map(Number);
+      const d = new Date(2000, 0, 1, sh, sm);
+      d.setHours(d.getHours() + 1);
+      ({ h, m, ap } = to12Hour(timeStrFromDate(d)));
+    } else {
+      const rounded = roundUpToNext30();
+      ({ h, m, ap } = to12Hour(timeStrFromDate(rounded)));
+    }
+  }
+
+  _wheelDateItems = buildWheelDateItems(tempDate);
+  state.modal = {
+    type: 'datetime',
+    field,                                     // 'start' | 'finish'
+    mode: field === 'start' ? 'datetime' : 'time',
+    tempDate, tempHour: h, tempMinute: m, tempAmpm: ap,
+  };
+  render(true); // force: modal.type is already 'datetime' here, and the poll-protection guard would otherwise block this very render
+};
+
+// Validates the wheel's current in-progress selection against:
+//  1. Not in the past — only enforced when creating a NEW event; editing an
+//     existing (possibly historical) event must still allow past dates.
+//  2. Start must be strictly before Finish — checked against whichever of
+//     the two fields isn't the one currently open in the picker.
+function computeWheelValidation() {
+  const m = state.modal;
+  if (!m || m.type !== 'datetime') return { valid: true };
+  const f = state.createEventForm;
+  const time24 = to24HourStr(m.tempHour, m.tempMinute, m.tempAmpm);
+
+  if (m.field === 'start') {
+    if (!state.editingEventId) {
+      const ms = fullDateTimeMs(m.tempDate, time24);
+      if (ms !== null && ms < Date.now()) {
+        return { valid: false, message: 'Start time must be in the future.' };
+      }
+    }
+    if (f.finishTime) {
+      const startMs = fullDateTimeMs(m.tempDate, time24);
+      const finishMs = fullDateTimeMs(m.tempDate, f.finishTime);
+      if (startMs !== null && finishMs !== null && startMs >= finishMs) {
+        return { valid: false, message: 'Start time must be before the finish time.' };
+      }
+    }
+  } else {
+    // field === 'finish'
+    if (!state.editingEventId) {
+      const ms = fullDateTimeMs(m.tempDate, time24);
+      if (ms !== null && ms < Date.now()) {
+        return { valid: false, message: 'Finish time must be in the future.' };
+      }
+    }
+    if (f.time) {
+      const startMs = fullDateTimeMs(m.tempDate, f.time);
+      const finishMs = fullDateTimeMs(m.tempDate, time24);
+      if (startMs !== null && finishMs !== null && finishMs <= startMs) {
+        return { valid: false, message: 'Finish time must be after the start time.' };
+      }
+    }
+  }
+  return { valid: true };
+}
+
+function buildDateTimeWheelModal() {
+  const m = state.modal;
+  const isTimeOnly = m.mode === 'time';
+  const dateIdx   = Math.max(0, _wheelDateItems.findIndex(it => it.value === m.tempDate));
+  const hourIdx   = Math.max(0, _wheelHourItems.indexOf(m.tempHour));
+  const minuteIdx = Math.max(0, _wheelMinuteItems.indexOf(m.tempMinute));
+  const ampmIdx   = Math.max(0, _wheelAmpmItems.indexOf(m.tempAmpm));
+
+  const col = (id, items, activeIdx, extraClass = '') => `
+    <div class="wheel-col ${extraClass}" id="${id}">
+      <div class="wheel-spacer"></div>
+      ${items.map((it, i) => `<div class="wheel-item ${i===activeIdx?'wheel-item-active':''}">${it.label ?? it}</div>`).join('')}
+      <div class="wheel-spacer"></div>
+    </div>`;
+
+  const summaryText = isTimeOnly
+    ? buildTimeOnlySummary(to24HourStr(m.tempHour, m.tempMinute, m.tempAmpm))
+    : buildDateTimeSummary(m.tempDate, to24HourStr(m.tempHour, m.tempMinute, m.tempAmpm));
+
+  const validation = computeWheelValidation();
+
+  return `<div class="modal-overlay" onclick="closeModal(event)">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-title" style="font-size:16px;margin-bottom:-4px;">${isTimeOnly ? 'Finish time' : 'Date & start time'}</div>
+      <div style="display:flex;justify-content:center;">
+        <div class="dt-pill ${validation.valid?'':'dt-pill-error'}" id="dt-pill-text">${summaryText}</div>
+      </div>
+      <div class="wheel-picker-columns">
+        <div class="wheel-center-highlight"></div>
+        ${isTimeOnly ? '' : col('wp-date', _wheelDateItems, dateIdx, 'wheel-col-date')}
+        ${col('wp-hour', _wheelHourItems, hourIdx)}
+        ${col('wp-minute', _wheelMinuteItems, minuteIdx)}
+        ${col('wp-ampm', _wheelAmpmItems, ampmIdx)}
+      </div>
+      <div class="dt-error-box" id="dt-error-box" style="display:${validation.valid?'none':'flex'};">
+        <span>⚠️</span><span id="dt-error-text">${validation.message||''}</span>
+      </div>
+      <button class="btn-primary" id="dt-done-btn" onclick="confirmDateTimePicker()" ${validation.valid?'':'disabled'}>Done</button>
+      <button class="btn-secondary" onclick="closeModal(null, true)">Cancel</button>
+    </div>
+  </div>`;
+}
+
+window.confirmDateTimePicker = () => {
+  const m = state.modal;
+  const validation = computeWheelValidation();
+  if (!validation.valid) return; // Done is disabled in this state, but double-check defensively
+  const time24 = to24HourStr(m.tempHour, m.tempMinute, m.tempAmpm);
+  if (m.field === 'start') {
+    state.createEventForm.date = m.tempDate;
+    state.createEventForm.time = time24;
+  } else {
+    state.createEventForm.finishTime = time24;
+  }
+  state.modal = null;
+  render();
+};
+
+// Reads current scroll position of each wheel column, updates the live
+// highlight — no render() call, so the open wheels are never disturbed
+// mid-gesture.
+function updateWheelHighlight(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const items = el.querySelectorAll('.wheel-item');
+  const idx = Math.max(0, Math.min(items.length - 1, Math.round(el.scrollTop / WHEEL_ITEM_H)));
+  items.forEach((it, i) => it.classList.toggle('wheel-item-active', i === idx));
+  return idx;
+}
+
+// Pushes the current temp selection's validity into the pill, error box,
+// and Done button — all direct DOM writes, no render().
+function refreshWheelValidationUI() {
+  const validation = computeWheelValidation();
+  const pill = document.getElementById('dt-pill-text');
+  const errBox = document.getElementById('dt-error-box');
+  const errText = document.getElementById('dt-error-text');
+  const doneBtn = document.getElementById('dt-done-btn');
+  if (pill) pill.classList.toggle('dt-pill-error', !validation.valid);
+  if (errBox) errBox.style.display = validation.valid ? 'none' : 'flex';
+  if (errText) errText.textContent = validation.message || '';
+  if (doneBtn) doneBtn.disabled = !validation.valid;
+}
+
+function onWheelSettled(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const idx = updateWheelHighlight(id);
+  el.scrollTo({ top: idx * WHEEL_ITEM_H, behavior: 'smooth' });
+
+  const m = state.modal;
+  if (!m || m.type !== 'datetime') return;
+  if (id === 'wp-date')   m.tempDate   = _wheelDateItems[idx].value;
+  if (id === 'wp-hour')   m.tempHour   = _wheelHourItems[idx];
+  if (id === 'wp-minute') m.tempMinute = _wheelMinuteItems[idx];
+  if (id === 'wp-ampm')   m.tempAmpm   = _wheelAmpmItems[idx];
+
+  const isTimeOnly = m.mode === 'time';
+  const summaryText = isTimeOnly
+    ? buildTimeOnlySummary(to24HourStr(m.tempHour, m.tempMinute, m.tempAmpm))
+    : buildDateTimeSummary(m.tempDate, to24HourStr(m.tempHour, m.tempMinute, m.tempAmpm));
+  const pill = document.getElementById('dt-pill-text');
+  if (pill) pill.textContent = summaryText;
+
+  refreshWheelValidationUI();
+}
+
+function initDateTimeWheelPicker() {
+  const cols = ['wp-date', 'wp-hour', 'wp-minute', 'wp-ampm'];
+  cols.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el || el.dataset.wired) return;
+    el.dataset.wired = '1';
+
+    // Read the starting index from the server-rendered active item (scrollTop
+    // is still 0 at this point, so we can't derive it from scroll position yet).
+    const items = el.querySelectorAll('.wheel-item');
+    let idx = 0;
+    items.forEach((it, i) => { if (it.classList.contains('wheel-item-active')) idx = i; });
+    el.scrollTop = idx * WHEEL_ITEM_H;
+
+    let settleTimer = null;
+    el.addEventListener('scroll', () => {
+      updateWheelHighlight(id);
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => onWheelSettled(id), 120);
+    }, { passive: true });
+  });
+  refreshWheelValidationUI(); // reflect the initial (server-rendered) selection's validity too
 }
 
 // ── GLOBAL FUNCTIONS (called from onclick) ────────────────────────────────
@@ -6107,6 +6490,8 @@ function attachEvents() {
   // Allow Enter on login
   const loginPw = document.getElementById('login-password');
   if (loginPw) loginPw.addEventListener('keydown', e => { if(e.key==='Enter') window.doLogin(); });
+
+  if (state.modal?.type === 'datetime') initDateTimeWheelPicker();
 }
 
 // ── CLUB INFO ─── read-only, hard-coded via CLUB_CONFIG. No admin edit path.
