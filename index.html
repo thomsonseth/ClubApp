@@ -1728,6 +1728,7 @@ const state = {
     reminders: ['dayBefore'],
   },
   activeTrainingSessionId: null,
+  profileEditing: false,
   editingEventId: null,
   importFixture: {
     apiKey: '',
@@ -2712,6 +2713,7 @@ function navigate(screen, extra = {}) {
   Object.assign(state, extra);
   state.screen = screen;
   state.error = '';
+  if (screen === 'profile') state.profileEditing = false;
   if (['login','signup','forgotpassword','splash','emailconfirmed'].includes(screen)) {
     state.loading = false;
   }
@@ -3325,7 +3327,7 @@ function buildEmailConfirm() {
           </div>
           <div style="display:flex;align-items:center;justify-content:center;gap:10px;padding-top:4px;">
             <div style="width:8px;height:8px;border-radius:50%;background:var(--accent);opacity:0.8;"></div>
-            <div style="font-size:13px;color:var(--text-dim);">Waiting for confirmation…</div>
+            <div style="font-size:13px;color:var(--text-dim);">Waiting for confirmation — this updates as soon as you come back to this tab</div>
           </div>
         </div>
         <div class="auth-link" onclick="cancelEmailConfirm()">&#x2190; Back to sign up</div>
@@ -4850,8 +4852,9 @@ function buildProfile() {
           <div class="role-badge">${u.role}</div>
         </div>
 
-        <!-- Fields — always editable -->
+        <!-- Fields — read-only until 'Edit Details' is tapped, to avoid accidental edits -->
         <div style="display:flex;flex-direction:column;gap:14px;">
+          ${editing ? `
           <div class="input-group">
             <label class="input-label">First name</label>
             <input class="input-field" id="pr-fn" value="${u.firstName}" placeholder="Required"/>
@@ -4872,10 +4875,36 @@ function buildProfile() {
             <label class="input-label">Email</label>
             <input class="input-field" id="pr-email" type="email" value="${u.email}" placeholder="Required"/>
           </div>
+          ` : `
+          <div class="input-group">
+            <label class="input-label">First name</label>
+            <div class="input-field" style="color:var(--text-muted);">${u.firstName}</div>
+          </div>
+          <div class="input-group">
+            <label class="input-label">Last name</label>
+            <div class="input-field" style="color:var(--text-muted);">${u.lastName}</div>
+          </div>
+          <div class="input-group">
+            <label class="input-label">Preferred name</label>
+            <div class="input-field" style="color:var(--text-muted);">${u.nickname || '—'}</div>
+          </div>
+          <div class="input-group">
+            <label class="input-label">Mobile</label>
+            <div class="input-field" style="color:var(--text-muted);">${u.mobile || '—'}</div>
+          </div>
+          <div class="input-group">
+            <label class="input-label">Email</label>
+            <div class="input-field" style="color:var(--text-muted);">${u.email}</div>
+          </div>
+          `}
         </div>
 
         ${state.error ? `<div class="error-msg">${state.error}</div>` : ''}
-        <button class="btn-primary" onclick="saveProfile()">Save Profile</button>
+        ${editing
+          ? `<button class="btn-primary" onclick="saveProfile()">Save Details</button>
+             <button class="btn-secondary" style="margin-top:10px;" onclick="cancelEditProfile()">Cancel</button>`
+          : `<button class="btn-primary" onclick="startEditProfile()">Edit Details</button>`
+        }
       </div>
     </div>
   </div>`;
@@ -5569,68 +5598,93 @@ window.doSignup = () => {
 };
 
 let _emailConfirmInterval = null;
+let _emailConfirmChecking = false; // re-entrancy guard: visibility/focus and the interval can fire close together
+
+async function checkEmailConfirmationTick() {
+  if (state.screen !== 'emailconfirm') {
+    stopEmailConfirmPolling();
+    return;
+  }
+  const p = state.pendingSignup;
+  if (!p || _emailConfirmChecking) return;
+  _emailConfirmChecking = true;
+  try {
+    // Confirmation issues no session/token up front, so checking /auth/v1/user
+    // with a bearer token never works here — there isn't one yet. The only
+    // reliable signal from this side is attempting a real sign-in: it fails
+    // until the email is confirmed, then succeeds exactly once it is.
+    const data = await sb.auth_signIn(p.email, state.signupForm.password);
+    if (data.access_token) {
+      stopEmailConfirmPolling();
+      sb._token = data.access_token;
+      saveSessionFull(data);
+      // Create profile if needed
+      const existing = await sb.select('profiles', `id=eq.${p.userId}`);
+      if (!Array.isArray(existing) || existing.length === 0) {
+        await sb.insert('profiles', {
+          id: p.userId,
+          first_name: p.firstName,
+          last_name: p.lastName,
+          email: p.email,
+          mobile: p.mobile || '',
+          nickname: '',
+          role: 'Player',
+          avatar_url: null,
+          onboarding_complete: false,
+        });
+      }
+      state.user = {
+        id: p.userId, email: p.email,
+        firstName: p.firstName, lastName: p.lastName,
+        nickname: '', mobile: p.mobile || '',
+        role: 'Player', avatar: null,
+      };
+      state.pendingSignup = null;
+      await loadAppData();
+      state.loading = false;
+      startPolling();
+      startTokenRefresh();
+      // Not linking OneSignal here — this profile isn't live until Join Club is completed.
+      navigate('joinclub');
+      render(true);
+    }
+  } catch (e) {
+    // swallow — an unconfirmed sign-in attempt is expected to fail repeatedly
+  } finally {
+    _emailConfirmChecking = false;
+  }
+}
+
+// Fires an immediate check the moment the tab/app regains focus — this is
+// exactly the moment someone switches back after tapping the confirmation
+// link in their email, so it shortcuts the up-to-12s wait for the next
+// scheduled poll down to effectively instant in the common case. The 12s
+// interval itself stays untouched as a fallback (see rate-limit note below).
+function handleEmailConfirmVisibilityChange() {
+  if (!document.hidden) checkEmailConfirmationTick();
+}
 
 function startEmailConfirmPolling() {
   if (_emailConfirmInterval) return;
-  _emailConfirmInterval = setInterval(async () => {
-    if (state.screen !== 'emailconfirm') {
-      clearInterval(_emailConfirmInterval);
-      _emailConfirmInterval = null;
-      return;
-    }
-    const p = state.pendingSignup;
-    if (!p) return;
-    try {
-      // Confirmation issues no session/token up front, so checking /auth/v1/user
-      // with a bearer token never works here — there isn't one yet. The only
-      // reliable signal from this side is attempting a real sign-in: it fails
-      // until the email is confirmed, then succeeds exactly once it is.
-      const data = await sb.auth_signIn(p.email, state.signupForm.password);
-      if (data.access_token) {
-        clearInterval(_emailConfirmInterval);
-        _emailConfirmInterval = null;
-        sb._token = data.access_token;
-        saveSessionFull(data);
-        // Create profile if needed
-        const existing = await sb.select('profiles', `id=eq.${p.userId}`);
-        if (!Array.isArray(existing) || existing.length === 0) {
-          await sb.insert('profiles', {
-            id: p.userId,
-            first_name: p.firstName,
-            last_name: p.lastName,
-            email: p.email,
-            mobile: p.mobile || '',
-            nickname: '',
-            role: 'Player',
-            avatar_url: null,
-            onboarding_complete: false,
-          });
-        }
-        state.user = {
-          id: p.userId, email: p.email,
-          firstName: p.firstName, lastName: p.lastName,
-          nickname: '', mobile: p.mobile || '',
-          role: 'Player', avatar: null,
-        };
-        state.pendingSignup = null;
-        await loadAppData();
-        state.loading = false;
-        startPolling();
-        startTokenRefresh();
-        // Not linking OneSignal here — this profile isn't live until Join Club is completed.
-        navigate('joinclub');
-        render(true);
-      }
-    } catch(e) {}
-  }, 12000); // 12s — each poll is now a real sign-in attempt, and Supabase caps
-             // sign-in requests at 30 per 5 minutes per IP; a faster interval
-             // would exhaust that limit before a person realistically gets to
-             // their inbox and taps the link.
+  document.addEventListener('visibilitychange', handleEmailConfirmVisibilityChange);
+  window.addEventListener('focus', handleEmailConfirmVisibilityChange);
+  _emailConfirmInterval = setInterval(checkEmailConfirmationTick, 12000);
+  // 12s — each poll is a real sign-in attempt, and Supabase caps sign-in
+  // requests at 30 per 5 minutes per IP; a faster interval would exhaust
+  // that limit before a person realistically gets to their inbox and taps
+  // the link. The visibility/focus listener above covers the common case
+  // where this interval alone would feel slow.
+}
+
+function stopEmailConfirmPolling() {
+  clearInterval(_emailConfirmInterval);
+  _emailConfirmInterval = null;
+  document.removeEventListener('visibilitychange', handleEmailConfirmVisibilityChange);
+  window.removeEventListener('focus', handleEmailConfirmVisibilityChange);
 }
 
 window.cancelEmailConfirm = () => {
-  clearInterval(_emailConfirmInterval);
-  _emailConfirmInterval = null;
+  stopEmailConfirmPolling();
   navigate('signup');
 };
 
@@ -6261,6 +6315,18 @@ window.handleJoinAvatarUpload = (event) => {
   reader.readAsDataURL(file);
 };
 
+window.startEditProfile = () => {
+  state.error = '';
+  state.profileEditing = true;
+  render();
+};
+
+window.cancelEditProfile = () => {
+  state.error = '';
+  state.profileEditing = false;
+  render();
+};
+
 window.saveProfile = () => {
   if (!state.user) return;
   const fn    = document.getElementById('pr-fn')?.value.trim();
@@ -6285,6 +6351,7 @@ window.saveProfile = () => {
   if (u) Object.assign(u, { firstName: fn, lastName: ln, nickname: nick, mobile: mob, email });
 
   persistProfiles();
+  state.profileEditing = false;
   showToast('Profile saved!');
   render();
 };
