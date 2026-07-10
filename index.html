@@ -5682,6 +5682,7 @@ async function checkEmailConfirmationTick(manual = false) {
         role: 'Player', avatar: null,
       };
       state.pendingSignup = null;
+      state.signupForm = { firstName: '', lastName: '', mobile: '', email: '', password: '', confirm: '' };
       await loadAppData();
       state.loading = false;
       state.emailConfirmFinalizing = false;
@@ -5786,6 +5787,7 @@ window.completeSignupAfterConfirm = async () => {
   };
 
   state.pendingSignup = null;
+  state.signupForm = { firstName: '', lastName: '', mobile: '', email: '', password: '', confirm: '' };
   await loadAppData();
   state.loading = false;
   navigate('joinclub');
@@ -7692,6 +7694,7 @@ function checkShowInstallPrompt() {
           role: 'Player', avatar: null,
         };
         state.pendingSignup = null;
+        state.signupForm = { firstName: '', lastName: '', mobile: '', email: '', password: '', confirm: '' };
         await loadAppData();
         state.loading = false;
         navigate('joinclub');
