@@ -1758,6 +1758,7 @@ const state = {
 // ══════════════════════════════════════════════════════════════════════════
 const SUPABASE_URL  = 'https://jevhcjfeybzkltqnbloa.supabase.co';
 const RSS_PROXY_URL = 'https://rss-proxy.thomsonseth.workers.dev';
+const DELETE_ACCOUNT_WORKER_URL = 'https://delete-account-proxy.thomsonseth.workers.dev';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpldmhjamZleWJ6a2x0cW5ibG9hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwMzMxMzYsImV4cCI6MjA5MDYwOTEzNn0.65EYjQ96Uae8tZvAecR3cTFj45Uy408kwlHRZIenqU4';
 
 // Lightweight Supabase REST helper — no npm needed
@@ -2022,7 +2023,7 @@ async function loadAppData(silent = false) {
         body: a.body,
         image: a.image_url || null,
         date: a.created_at ? a.created_at.slice(0,10) : '',
-        author: a.author_name || 'Admin',
+        author: a.author_id ? (a.author_name || 'Admin') : 'Deleted user',
         recipients: a.recipients || 'all',
       })) : [];
 
@@ -2510,9 +2511,33 @@ async function confirmLogout() {
 }
 
 // ── AUTH: Delete profile ──────────────────────────────────────────────────
+// Calls the delete-account-proxy Worker, which deletes the Supabase auth user
+// (not just the profiles row) using a service-role key that can't safely live
+// in this client-side app. See delete-account-proxy.js for the full rationale.
+async function deleteAccountViaWorker(targetUserId) {
+  try {
+    const res = await fetch(DELETE_ACCOUNT_WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetUserId, accessToken: sb._token }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { success: false, error: data.error || `Request failed (${res.status})` };
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: 'Network error — please check your connection and try again.' };
+  }
+}
+
 async function confirmDeleteProfile() {
   if (!state.user) return;
-  await sb.delete('profiles', { id: state.user.id });
+  const result = await deleteAccountViaWorker(state.user.id);
+  if (!result.success) {
+    state.modal = null;
+    state.error = result.error || 'Could not delete your profile. Please try again or contact support.';
+    render();
+    return;
+  }
   await sb.auth_signOut();
   state.user = null;
   state.modal = null;
@@ -4507,14 +4532,21 @@ function buildChat() {
 
     // Sender avatar (group only, non-mine)
     let avatarHtml = '';
-    if (!isMine && isGroup && sender) {
-      avatarHtml = sender.avatar
-        ? `<div class="chat-sender-avatar"><img src="${sender.avatar}"/></div>`
-        : `<div class="chat-sender-avatar">${getInitials(sender.firstName, sender.lastName)}</div>`;
+    if (!isMine && isGroup) {
+      if (sender) {
+        avatarHtml = sender.avatar
+          ? `<div class="chat-sender-avatar"><img src="${sender.avatar}"/></div>`
+          : `<div class="chat-sender-avatar">${getInitials(sender.firstName, sender.lastName)}</div>`;
+      } else if (msg.from) {
+        // from_id is set but no matching profile — their account was deleted
+        avatarHtml = `<div class="chat-sender-avatar">?</div>`;
+      }
     }
 
-    const senderName = isGroup && !isMine && sender
-      ? `<div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:2px;padding-left:2px;">${sender.nickname || sender.firstName}</div>`
+    const senderName = isGroup && !isMine
+      ? (sender
+          ? `<div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:2px;padding-left:2px;">${sender.nickname || sender.firstName}</div>`
+          : (msg.from ? `<div style="font-size:11px;color:var(--text-dim);font-weight:600;margin-bottom:2px;padding-left:2px;">Deleted user</div>` : ''))
       : '';
 
     // Reactions display
@@ -6485,11 +6517,17 @@ window.deleteUser = (id) => {
   render(true);
 };
 
-window.confirmDeleteUser = (id) => {
+window.confirmDeleteUser = async (id) => {
   state.modal = null;
+  render();
+  const result = await deleteAccountViaWorker(id);
+  if (!result.success) {
+    showToast(result.error || 'Could not delete this user. Please try again.', 3000);
+    return;
+  }
   const idx = state.users.findIndex(u => u.id === id);
   if (idx >= 0) state.users.splice(idx, 1);
-  sb.delete('profiles', { id });
+  showToast('User deleted.');
   navigate('userlist');
 };
 
@@ -7218,7 +7256,7 @@ async function pollAll() {
             id: a.id, title: a.title, body: a.body,
             image: a.image_url || null,
             date: a.created_at ? a.created_at.slice(0,10) : '',
-            author: a.author_name || 'Admin',
+            author: a.author_id ? (a.author_name || 'Admin') : 'Deleted user',
             recipients: a.recipients || 'all',
           }));
         const changed = JSON.stringify(newList.map(a=>a.id)) !== JSON.stringify(state.announcements.map(a=>a.id));
