@@ -207,6 +207,7 @@
     cursor: pointer;
     transition: opacity 0.2s;
   }
+  .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .btn-danger {
     width: 100%;
@@ -1729,6 +1730,8 @@ const state = {
   },
   activeTrainingSessionId: null,
   profileEditing: false,
+  emailConfirmEnteredAt: 0,
+  manualCheckPending: false,
   editingEventId: null,
   importFixture: {
     apiKey: '',
@@ -2389,6 +2392,7 @@ async function handleSignup() {
     state.loading = false;
     state.error = '';
     state.screen = 'emailconfirm';
+    state.emailConfirmEnteredAt = Date.now();
     state.pendingSignup = {
       firstName: f.firstName,
       lastName: f.lastName,
@@ -3305,12 +3309,27 @@ function buildSetNewPassword() {
 // ── EMAIL CONFIRMATION SCREEN ─────────────────────────────────────────────
 function buildEmailConfirm() {
   const email = state.pendingSignup?.email || '';
+  const BACK_LOCK_MS = 10000;
+  const elapsed = Date.now() - (state.emailConfirmEnteredAt || 0);
+  const backLocked = elapsed < BACK_LOCK_MS;
+
+  // Schedule exactly one re-render for when the lock lifts, however many
+  // times this function itself gets called in the meantime (interval ticks,
+  // visibility checks, the manual button, etc. all re-render independently).
+  if (backLocked && !_emailConfirmBackUnlockTimer) {
+    _emailConfirmBackUnlockTimer = setTimeout(() => {
+      _emailConfirmBackUnlockTimer = null;
+      if (state.screen === 'emailconfirm') render();
+    }, BACK_LOCK_MS - elapsed);
+  }
+
   return `<div class="screen">
-    <div style="padding:12px 16px 0;display:flex;align-items:center;">
+    <div style="padding:12px 16px 0;display:flex;align-items:center;min-height:38px;">
+      ${backLocked ? '' : `
       <button onclick="cancelEmailConfirm()" style="background:var(--surface);border:none;color:var(--text);padding:6px 14px 6px 10px;border-radius:20px;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:4px;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
         Back
-      </button>
+      </button>`}
     </div>
     <div style="padding-top:8px;display:flex;align-items:center;justify-content:center;">${buildLogo(66)}</div>
     <div class="screen-scroll">
@@ -3323,14 +3342,20 @@ function buildEmailConfirm() {
           <div style="font-size:15px;color:var(--text);line-height:1.6;">
             1. Open the email from ${CLUB_CONFIG.clubShortName}<br/>
             2. Tap the confirmation link<br/>
-            3. This screen will update automatically
+            3. Come back here — it usually takes about 10 seconds to confirm
           </div>
           <div style="display:flex;align-items:center;justify-content:center;gap:10px;padding-top:4px;">
             <div style="width:8px;height:8px;border-radius:50%;background:var(--accent);opacity:0.8;"></div>
-            <div style="font-size:13px;color:var(--text-dim);">Waiting for confirmation — this updates as soon as you come back to this tab</div>
+            <div style="font-size:13px;color:var(--text-dim);">Waiting for confirmation…</div>
           </div>
         </div>
-        <div class="auth-link" onclick="cancelEmailConfirm()">&#x2190; Back to sign up</div>
+        <button class="btn-secondary" onclick="manualCheckEmailConfirm()" ${state.manualCheckPending ? 'disabled' : ''}>
+          ${state.manualCheckPending ? 'Checking…' : "I've confirmed — check now"}
+        </button>
+        ${backLocked
+          ? `<div style="font-size:13px;color:var(--text-dim);text-align:center;">Hang tight — no need to go back, this will update on its own</div>`
+          : `<div class="auth-link" onclick="cancelEmailConfirm()">&#x2190; Back to sign up</div>`
+        }
         ${state.error ? `<div class="error-msg">${state.error}</div>` : ''}
       </div>
     </div>
@@ -5598,16 +5623,21 @@ window.doSignup = () => {
 };
 
 let _emailConfirmInterval = null;
-let _emailConfirmChecking = false; // re-entrancy guard: visibility/focus and the interval can fire close together
+let _emailConfirmChecking = false; // re-entrancy guard: visibility/focus, the interval, and the manual button can fire close together
+let _emailConfirmManualCooldownUntil = 0; // timestamp — stops rapid taps on the manual button from burning Supabase's sign-in rate limit
+let _emailConfirmBackUnlockTimer = null; // reveals the Back button ~10s after landing on this screen
 
-async function checkEmailConfirmationTick() {
+async function checkEmailConfirmationTick(manual = false) {
   if (state.screen !== 'emailconfirm') {
     stopEmailConfirmPolling();
     return;
   }
   const p = state.pendingSignup;
   if (!p || _emailConfirmChecking) return;
+  if (manual && Date.now() < _emailConfirmManualCooldownUntil) return;
+
   _emailConfirmChecking = true;
+  if (manual) { state.error = ''; state.manualCheckPending = true; render(); }
   try {
     // Confirmation issues no session/token up front, so checking /auth/v1/user
     // with a bearer token never works here — there isn't one yet. The only
@@ -5647,13 +5677,22 @@ async function checkEmailConfirmationTick() {
       // Not linking OneSignal here — this profile isn't live until Join Club is completed.
       navigate('joinclub');
       render(true);
+    } else if (manual) {
+      state.error = "Not confirmed yet — please tap the link in your email first, then try again.";
     }
   } catch (e) {
-    // swallow — an unconfirmed sign-in attempt is expected to fail repeatedly
+    if (manual) state.error = "Not confirmed yet — please tap the link in your email first, then try again.";
   } finally {
     _emailConfirmChecking = false;
+    if (manual) {
+      _emailConfirmManualCooldownUntil = Date.now() + 4000;
+      state.manualCheckPending = false;
+      render();
+    }
   }
 }
+
+window.manualCheckEmailConfirm = () => checkEmailConfirmationTick(true);
 
 // Fires an immediate check the moment the tab/app regains focus — this is
 // exactly the moment someone switches back after tapping the confirmation
@@ -5681,6 +5720,7 @@ function stopEmailConfirmPolling() {
   _emailConfirmInterval = null;
   document.removeEventListener('visibilitychange', handleEmailConfirmVisibilityChange);
   window.removeEventListener('focus', handleEmailConfirmVisibilityChange);
+  if (_emailConfirmBackUnlockTimer) { clearTimeout(_emailConfirmBackUnlockTimer); _emailConfirmBackUnlockTimer = null; }
 }
 
 window.cancelEmailConfirm = () => {
