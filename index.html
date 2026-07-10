@@ -1730,8 +1730,8 @@ const state = {
   },
   activeTrainingSessionId: null,
   profileEditing: false,
-  emailConfirmEnteredAt: 0,
   manualCheckPending: false,
+  emailConfirmFinalizing: false,
   editingEventId: null,
   importFixture: {
     apiKey: '',
@@ -1984,16 +1984,27 @@ async function loadAppData(silent = false) {
   }
 
   try {
+    // These six don't depend on each other's *results* being fetched — only
+    // the processing below needs them in a particular order. Fetching them
+    // in parallel instead of one-after-another cuts this from ~7 sequential
+    // round trips down to 2, which matters most right after signup
+    // confirmation, where this runs before the person sees anything at all.
+    const [profiles, evRows, rsvps, teams, annRows, threads] = await Promise.all([
+      sb.select('profiles', 'order=first_name.asc'),
+      sb.select('events', 'order=date.asc'),
+      sb.select('rsvps', ''),
+      sb.select('team_selections', ''),
+      sb.select('announcements', 'order=created_at.desc'),
+      sb.select('threads', 'order=created_at.asc'),
+    ]);
+
     // Users / profiles
-    const profiles = await sb.select('profiles', 'order=first_name.asc');
     state.users = Array.isArray(profiles) ? profiles.map(profileToUser) : [];
 
     // Events
-    const evRows = await sb.select('events', 'order=date.asc');
     state.events = Array.isArray(evRows) ? evRows.map(rowToEvent) : [];
 
     // RSVPs — attach to events
-    const rsvps = await sb.select('rsvps', '');
     if (Array.isArray(rsvps)) {
       rsvps.forEach(r => {
         const ev = state.events.find(e => e.id === r.event_id);
@@ -2002,7 +2013,6 @@ async function loadAppData(silent = false) {
     }
 
     // Team selections — attach to events
-    const teams = await sb.select('team_selections', '');
     if (Array.isArray(teams)) {
       teams.forEach(t => {
         const ev = state.events.find(e => e.id === t.event_id);
@@ -2015,7 +2025,6 @@ async function loadAppData(silent = false) {
     }
 
     // Announcements
-    const annRows = await sb.select('announcements', 'order=created_at.desc');
     // Filter out any locally-deleted announcements on load
     let _deletedOnLoad = new Set();
     try { _deletedOnLoad = new Set(JSON.parse(localStorage.getItem('clubapp_deleted_anns') || '[]')); } catch(e) {}
@@ -2031,8 +2040,9 @@ async function loadAppData(silent = false) {
         recipients: a.recipients || 'all',
       })) : [];
 
-    // Threads + messages — RLS ensures only participant threads are returned
-    const threads = await sb.select('threads', 'order=created_at.asc');
+    // Threads + messages — RLS ensures only participant threads are returned.
+    // Messages need the thread IDs first, so this one genuinely has to wait
+    // for the batch above rather than joining it.
     if (Array.isArray(threads) && threads.length > 0) {
       const threadIds = threads.map(t => `"${t.id}"`).join(',');
       const msgs = await sb.select('messages', `thread_id=in.(${threadIds})&order=created_at.asc`);
@@ -2392,7 +2402,6 @@ async function handleSignup() {
     state.loading = false;
     state.error = '';
     state.screen = 'emailconfirm';
-    state.emailConfirmEnteredAt = Date.now();
     state.pendingSignup = {
       firstName: f.firstName,
       lastName: f.lastName,
@@ -3309,19 +3318,11 @@ function buildSetNewPassword() {
 // ── EMAIL CONFIRMATION SCREEN ─────────────────────────────────────────────
 function buildEmailConfirm() {
   const email = state.pendingSignup?.email || '';
-  const BACK_LOCK_MS = 10000;
-  const elapsed = Date.now() - (state.emailConfirmEnteredAt || 0);
-  const backLocked = elapsed < BACK_LOCK_MS;
-
-  // Schedule exactly one re-render for when the lock lifts, however many
-  // times this function itself gets called in the meantime (interval ticks,
-  // visibility checks, the manual button, etc. all re-render independently).
-  if (backLocked && !_emailConfirmBackUnlockTimer) {
-    _emailConfirmBackUnlockTimer = setTimeout(() => {
-      _emailConfirmBackUnlockTimer = null;
-      if (state.screen === 'emailconfirm') render();
-    }, BACK_LOCK_MS - elapsed);
-  }
+  // Back is only locked during work that's actually happening right now —
+  // a manual check in flight, or (the real source of any multi-second wait)
+  // finishing account setup once confirmation is detected. There's no
+  // meaningful reason to lock it before that, so no blind timer here.
+  const backLocked = state.manualCheckPending || state.emailConfirmFinalizing;
 
   return `<div class="screen">
     <div style="padding:12px 16px 0;display:flex;align-items:center;min-height:38px;">
@@ -3335,27 +3336,32 @@ function buildEmailConfirm() {
     <div class="screen-scroll">
       <div class="auth-screen">
         <div>
-          <div class="auth-heading">Check your email</div>
-          <div class="auth-subheading">We sent a confirmation link to <strong style="color:var(--accent)">${email}</strong></div>
+          <div class="auth-heading">${state.emailConfirmFinalizing ? 'Confirmed!' : 'Check your email'}</div>
+          <div class="auth-subheading">${state.emailConfirmFinalizing
+            ? 'Setting up your account — this only takes a moment.'
+            : `We sent a confirmation link to <strong style="color:var(--accent)">${email}</strong>`}</div>
         </div>
+        ${state.emailConfirmFinalizing ? `
+        <div style="display:flex;justify-content:center;padding:20px 0;">
+          <div class="spinner"></div>
+        </div>
+        ` : `
         <div style="background:var(--surface);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:12px;text-align:center;">
           <div style="font-size:15px;color:var(--text);line-height:1.6;">
             1. Open the email from ${CLUB_CONFIG.clubShortName}<br/>
             2. Tap the confirmation link<br/>
-            3. Come back here — it usually takes about 10 seconds to confirm
+            3. Come back here and tap the button below
           </div>
           <div style="display:flex;align-items:center;justify-content:center;gap:10px;padding-top:4px;">
             <div style="width:8px;height:8px;border-radius:50%;background:var(--accent);opacity:0.8;"></div>
             <div style="font-size:13px;color:var(--text-dim);">Waiting for confirmation…</div>
           </div>
         </div>
-        <button class="btn-secondary" onclick="manualCheckEmailConfirm()" ${state.manualCheckPending ? 'disabled' : ''}>
+        <button class="btn-primary" onclick="manualCheckEmailConfirm()" ${state.manualCheckPending ? 'disabled' : ''}>
           ${state.manualCheckPending ? 'Checking…' : "I've confirmed — check now"}
         </button>
-        ${backLocked
-          ? `<div style="font-size:13px;color:var(--text-dim);text-align:center;">Hang tight — no need to go back, this will update on its own</div>`
-          : `<div class="auth-link" onclick="cancelEmailConfirm()">&#x2190; Back to sign up</div>`
-        }
+        <div class="auth-link" onclick="cancelEmailConfirm()">&#x2190; Back to sign up</div>
+        `}
         ${state.error ? `<div class="error-msg">${state.error}</div>` : ''}
       </div>
     </div>
@@ -5625,7 +5631,6 @@ window.doSignup = () => {
 let _emailConfirmInterval = null;
 let _emailConfirmChecking = false; // re-entrancy guard: visibility/focus, the interval, and the manual button can fire close together
 let _emailConfirmManualCooldownUntil = 0; // timestamp — stops rapid taps on the manual button from burning Supabase's sign-in rate limit
-let _emailConfirmBackUnlockTimer = null; // reveals the Back button ~10s after landing on this screen
 
 async function checkEmailConfirmationTick(manual = false) {
   if (state.screen !== 'emailconfirm') {
@@ -5646,6 +5651,13 @@ async function checkEmailConfirmationTick(manual = false) {
     const data = await sb.auth_signIn(p.email, state.signupForm.password);
     if (data.access_token) {
       stopEmailConfirmPolling();
+      // The sign-in itself is fast — what actually takes a few seconds is
+      // everything below (profile creation + the initial full data load).
+      // Show that plainly and lock Back for this specific window, rather
+      // than an arbitrary timer that has no relationship to the real delay.
+      state.emailConfirmFinalizing = true;
+      state.manualCheckPending = false;
+      render();
       sb._token = data.access_token;
       saveSessionFull(data);
       // Create profile if needed
@@ -5672,6 +5684,7 @@ async function checkEmailConfirmationTick(manual = false) {
       state.pendingSignup = null;
       await loadAppData();
       state.loading = false;
+      state.emailConfirmFinalizing = false;
       startPolling();
       startTokenRefresh();
       // Not linking OneSignal here — this profile isn't live until Join Club is completed.
@@ -5682,6 +5695,7 @@ async function checkEmailConfirmationTick(manual = false) {
     }
   } catch (e) {
     if (manual) state.error = "Not confirmed yet — please tap the link in your email first, then try again.";
+    state.emailConfirmFinalizing = false;
   } finally {
     _emailConfirmChecking = false;
     if (manual) {
@@ -5720,11 +5734,12 @@ function stopEmailConfirmPolling() {
   _emailConfirmInterval = null;
   document.removeEventListener('visibilitychange', handleEmailConfirmVisibilityChange);
   window.removeEventListener('focus', handleEmailConfirmVisibilityChange);
-  if (_emailConfirmBackUnlockTimer) { clearTimeout(_emailConfirmBackUnlockTimer); _emailConfirmBackUnlockTimer = null; }
 }
 
 window.cancelEmailConfirm = () => {
   stopEmailConfirmPolling();
+  state.emailConfirmFinalizing = false;
+  state.manualCheckPending = false;
   navigate('signup');
 };
 
