@@ -7506,9 +7506,7 @@ async function pollAll() {
     if (!Array.isArray(msgs)) return;
 
     let gotNew = false;
-    let newMsgFrom = null;
-    let newMsgText = '';
-    let newMsgThread = null;
+    const newMessages = []; // collect every new message this poll cycle, not just the first
 
     myThreads.forEach(t => {
       const threadMsgs = msgs.filter(m => m.thread_id === t.id);
@@ -7538,30 +7536,33 @@ async function pollAll() {
         };
         existing.messages.push(newMsg);
 
-        if (m.from_id !== state.user.id) {
+        // String() guards against a stray type/whitespace mismatch silently
+        // letting a sender's own client treat its own message as "new".
+        if (String(m.from_id) !== String(state.user.id)) {
           existing.unread[state.user.id] = (existing.unread[state.user.id] || 0) + 1;
           gotNew = true;
-          if (!newMsgFrom) {
-            newMsgFrom = m.from_id;
-            newMsgText = m.text || '';
-            newMsgThread = existing;
-          }
+          newMessages.push({ id: m.id, fromId: m.from_id, text: m.text || '', thread: existing });
         }
       });
     });
 
     if (gotNew) {
-      if (newMsgFrom && newMsgThread) {
-        const sender = state.users.find(u => u.id === newMsgFrom);
-        const senderName = sender ? (sender.nickname || sender.firstName) : 'Someone';
-        const recipients = newMsgThread.participants.filter(pid => pid !== newMsgFrom);
-        if (recipients.length > 0) {
-          sendPushNotificationToUsers(
-            `Message from ${senderName}`,
-            newMsgText.substring(0, 200),
-            `${CLUB_CONFIG.appUrl}/#screen=chat&id=${newMsgThread.id}`,
-            recipients,
-          );
+      // Every participant's client detects the same new message independently.
+      // claimReminder ensures only one of them actually sends the push, no
+      // matter how many clients are polling this thread at once.
+      for (const msg of newMessages) {
+        if (await claimReminder(`msg_${msg.id}`)) {
+          const sender = state.users.find(u => u.id === msg.fromId);
+          const senderName = sender ? (sender.nickname || sender.firstName) : 'Someone';
+          const recipients = msg.thread.participants.filter(pid => pid !== msg.fromId);
+          if (recipients.length > 0) {
+            sendPushNotificationToUsers(
+              `Message from ${senderName}`,
+              msg.text.substring(0, 200),
+              `${CLUB_CONFIG.appUrl}/#screen=chat&id=${msg.thread.id}`,
+              recipients,
+            );
+          }
         }
       }
       // Only re-render if user isn't actively typing
