@@ -709,6 +709,19 @@
   }
   .msg-thread:active { opacity: 0.7; }
 
+  .msg-thread-wrap { position: relative; overflow: hidden; }
+  .msg-thread-delete-action {
+    position: absolute; top: 0; right: 0; bottom: 0; width: 76px;
+    background: var(--red); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700; cursor: pointer;
+  }
+  .msg-thread-wrap .msg-thread {
+    background: var(--bg); position: relative; z-index: 1;
+    transition: transform 0.18s ease;
+  }
+  .msg-thread-wrap .msg-thread.swiped { transform: translateX(-76px); }
+
   .msg-avatar {
     width: 50px; height: 50px;
     border-radius: 50%;
@@ -1685,6 +1698,7 @@ const state = {
   chatSearch: '',           // search query within active chat
   chatSearchActive: false,  // whether search bar is open
   reactionPickerMsgId: null, // message id showing emoji picker
+  swipedThreadId: null,      // thread id currently showing the swipe-to-delete action
   selectedPlayers: [],
   modal: null,               // { type, ... }
   newMessage: '',
@@ -1730,6 +1744,8 @@ const state = {
   },
   activeTrainingSessionId: null,
   profileEditing: false,
+  userDetailEditing: false,  // gates locked/editable admin user-edit fields, same pattern as profile
+  userDetailForm: {},        // controlled draft values for the admin user-edit screen — survives background renders
   manualCheckPending: false,
   emailConfirmFinalizing: false,
   editingEventId: null,
@@ -2043,10 +2059,13 @@ async function loadAppData(silent = false) {
     // Threads + messages — RLS ensures only participant threads are returned.
     // Messages need the thread IDs first, so this one genuinely has to wait
     // for the batch above rather than joining it.
-    if (Array.isArray(threads) && threads.length > 0) {
-      const threadIds = threads.map(t => `"${t.id}"`).join(',');
+    let _deletedThreadsOnLoad = new Set();
+    try { _deletedThreadsOnLoad = new Set(JSON.parse(localStorage.getItem('clubapp_deleted_threads') || '[]')); } catch(e) {}
+    const threadsFiltered = Array.isArray(threads) ? threads.filter(t => !_deletedThreadsOnLoad.has(t.id)) : threads;
+    if (Array.isArray(threadsFiltered) && threadsFiltered.length > 0) {
+      const threadIds = threadsFiltered.map(t => `"${t.id}"`).join(',');
       const msgs = await sb.select('messages', `thread_id=in.(${threadIds})&order=created_at.asc`);
-      state.messages = threads.map(t => {
+      state.messages = threadsFiltered.map(t => {
         const threadMsgs = Array.isArray(msgs)
           ? msgs.filter(m => m.thread_id === t.id).map(m => ({
               id: m.id,
@@ -2064,6 +2083,7 @@ async function loadAppData(silent = false) {
           id: t.id,
           isGroup: t.is_group,
           name: t.name || null,
+          image: t.image_url || null,
           participants: t.participants || [],
           messages: threadMsgs,
           unread,
@@ -2657,7 +2677,7 @@ function getThreadName(thread) {
 }
 
 function getThreadAvatar(thread) {
-  if (thread.isGroup) return null;
+  if (thread.isGroup) return thread.image ? { avatar: thread.image } : null;
   const other = thread.participants.find(id => id !== state.user?.id);
   return state.users.find(u => u.id === other) || null;
 }
@@ -4507,7 +4527,11 @@ function buildMessages() {
       : 'No messages yet';
     const timeStr = formatMsgTime(last?.ts);
 
-    return `<div class="msg-thread" onclick="openChat('${t.id}')">
+    return `<div class="msg-thread-wrap">
+      <div class="msg-thread-delete-action" onclick="confirmDeleteThread('${t.id}')">Delete</div>
+      <div class="msg-thread ${state.swipedThreadId === t.id ? 'swiped' : ''}"
+        ontouchstart="threadTouchStart(event)" ontouchend="threadTouchEnd(event,'${t.id}')"
+        onclick="${state.swipedThreadId === t.id ? "closeThreadSwipe(event)" : `openChat('${t.id}')`}">
       ${buildUserAvatarHtml(otherUser, 50)}
       ${unread > 0 ? '<div class="unread-badge"></div>' : ''}
       <div class="msg-info">
@@ -4517,6 +4541,7 @@ function buildMessages() {
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;">
         <div class="msg-time">${timeStr}</div>
         ${unread > 0 ? `<div style="background:var(--accent);color:#000;font-size:11px;font-weight:700;min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 4px;">${unread}</div>` : ''}
+      </div>
       </div>
     </div>`;
   }).join('');
@@ -4647,7 +4672,7 @@ function buildChat() {
     <div class="chat-header">
       <button class="chat-header-back" onclick="navigate('messages')">‹ Back</button>
       <div class="chat-header-info" onclick="navigate('chatinfo')" style="cursor:pointer;">
-        ${buildUserAvatarHtml(isGroup ? null : otherUser, 36)}
+        ${buildUserAvatarHtml(otherUser, 36)}
         <div style="min-width:0;">
           <div class="chat-header-name">${name}</div>
           ${subLine ? `<div class="chat-header-sub">${subLine}</div>` : ''}
@@ -4714,15 +4739,24 @@ function buildChatInfo() {
 
         <!-- Avatar / name -->
         <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:8px 0;">
-          ${buildUserAvatarHtml(isGroup ? null : state.users.find(u => u.id === thread.participants.find(p => p !== state.user.id)), 72)}
           ${isGroup ? `
+            <div style="position:relative;display:inline-block;">
+              ${buildUserAvatarHtml(thread.image ? { avatar: thread.image } : null, 72)}
+              <label for="group-avatar-upload" style="position:absolute;bottom:0;right:0;width:28px;height:28px;background:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;border:2px solid var(--bg);">
+                ${icons.camera}
+                <input type="file" id="group-avatar-upload" accept="image/*" style="display:none;" onchange="handleGroupAvatarUpload(event)"/>
+              </label>
+            </div>
             <div style="display:flex;align-items:center;gap:8px;">
               <input class="input-field" id="group-name-edit" value="${thread.name || ''}"
                 placeholder="Group name" style="text-align:center;font-size:16px;font-weight:700;"
                 oninput="thread_nameEdit(this.value)"/>
             </div>
             <button class="btn-primary" style="margin-top:4px;" onclick="saveGroupName()">Save Name</button>
-          ` : `<div style="font-size:18px;font-weight:700;color:var(--text);">${name}</div>`}
+          ` : `
+            ${buildUserAvatarHtml(state.users.find(u => u.id === thread.participants.find(p => p !== state.user.id)), 72)}
+            <div style="font-size:18px;font-weight:700;color:var(--text);">${name}</div>
+          `}
         </div>
 
         <!-- Members -->
@@ -5083,6 +5117,8 @@ function buildUserList() {
 function buildUserDetail() {
   const u = state.users.find(u => u.id === state.activeUserId);
   if (!u) return buildUserList();
+  const editing = state.userDetailEditing;
+  const f = state.userDetailForm;
   return `<div class="screen">
     ${buildTopBanner({ title: 'User Detail', showBack: true })}
     <div class="screen-scroll">
@@ -5094,21 +5130,49 @@ function buildUserDetail() {
           <div class="role-badge">${u.role}</div>
           ${u.avatar ? `<button onclick="removeUserAvatar('${u.id}')" style="background:none;border:none;color:var(--red);font-size:13px;font-weight:600;cursor:pointer;margin-top:2px;">✕ Remove photo</button>` : ''}
         </div>
+        <!-- Fields — read-only until 'Edit Details' is tapped, same pattern as the profile screen -->
         <div style="display:flex;flex-direction:column;gap:14px;">
-          <div class="input-group"><label class="input-label">First name</label><input class="input-field" id="ud-fn" value="${u.firstName}"/></div>
-          <div class="input-group"><label class="input-label">Last name</label><input class="input-field" id="ud-ln" value="${u.lastName}"/></div>
-          <div class="input-group"><label class="input-label">Preferred name</label><input class="input-field" id="ud-nick" value="${u.nickname || ''}"/></div>
-          <div class="input-group"><label class="input-label">Mobile</label><input class="input-field" id="ud-mob" value="${u.mobile || ''}"/></div>
+          ${editing ? `
+          <div class="input-group">
+            <label class="input-label">First name</label>
+            <input class="input-field" id="ud-fn" value="${f.firstName ?? u.firstName}" placeholder="Required" oninput="setUdField('firstName', this.value)"/>
+          </div>
+          <div class="input-group">
+            <label class="input-label">Last name</label>
+            <input class="input-field" id="ud-ln" value="${f.lastName ?? u.lastName}" placeholder="Required" oninput="setUdField('lastName', this.value)"/>
+          </div>
+          <div class="input-group">
+            <label class="input-label">Preferred name</label>
+            <input class="input-field" id="ud-nick" value="${f.nickname ?? (u.nickname || '')}" oninput="setUdField('nickname', this.value)"/>
+          </div>
+          <div class="input-group">
+            <label class="input-label">Mobile</label>
+            <input class="input-field" id="ud-mob" value="${f.mobile ?? (u.mobile || '')}" oninput="setUdField('mobile', this.value)"/>
+          </div>
           <div class="input-group"><label class="input-label">Email</label><input class="input-field" value="${u.email}" readonly style="opacity:0.6;"/></div>
           <div class="input-group">
             <label class="input-label">Role</label>
-            <select id="ud-role">
-              ${['Administrator','Captain','Player','Supporter'].map(r=>`<option value="${r}" ${u.role===r?'selected':''}>${r}</option>`).join('')}
+            <select id="ud-role" onchange="setUdField('role', this.value)">
+              ${['Administrator','Captain','Player','Supporter'].map(r=>`<option value="${r}" ${(f.role ?? u.role)===r?'selected':''}>${r}</option>`).join('')}
             </select>
           </div>
+          ` : `
+          <div class="input-group"><label class="input-label">First name</label><div class="input-field" style="color:var(--text-muted);">${u.firstName}</div></div>
+          <div class="input-group"><label class="input-label">Last name</label><div class="input-field" style="color:var(--text-muted);">${u.lastName}</div></div>
+          <div class="input-group"><label class="input-label">Preferred name</label><div class="input-field" style="color:var(--text-muted);">${u.nickname || '—'}</div></div>
+          <div class="input-group"><label class="input-label">Mobile</label><div class="input-field" style="color:var(--text-muted);">${u.mobile || '—'}</div></div>
+          <div class="input-group"><label class="input-label">Email</label><div class="input-field" style="color:var(--text-muted);">${u.email}</div></div>
+          <div class="input-group"><label class="input-label">Role</label><div class="input-field" style="color:var(--text-muted);">${u.role}</div></div>
+          `}
         </div>
-        <button class="btn-primary" onclick="saveUserDetail('${u.id}')">Save changes</button>
-        <button class="btn-danger" onclick="deleteUser('${u.id}')">Delete User</button>
+
+        ${state.error ? `<div class="error-msg">${state.error}</div>` : ''}
+        ${editing
+          ? `<button class="btn-primary" onclick="saveUserDetail('${u.id}')">Save Details</button>
+             <button class="btn-secondary" style="margin-top:10px;" onclick="cancelEditUserDetail()">Cancel</button>`
+          : `<button class="btn-primary" onclick="startEditUserDetail('${u.id}')">Edit Details</button>`
+        }
+        <button class="btn-danger" style="margin-top:10px;" onclick="deleteUser('${u.id}')">Delete User</button>
       </div>
     </div>
   </div>`;
@@ -5230,6 +5294,18 @@ function buildModal() {
         <div style="display:flex;flex-direction:column;gap:10px;">
           <button class="btn-danger" onclick="confirmDeleteUser('${m.id}')">Delete User</button>
           <button class="btn-secondary" onclick="closeModal(null,true)">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+  }
+  if (m.type === 'deleteThread') {
+    return `<div class="modal-overlay" onclick="closeModal()">
+      <div class="modal-box" onclick="event.stopPropagation()">
+        <div class="modal-title">Delete Conversation</div>
+        <div style="font-size:15px;color:var(--text-muted);margin:12px 0 20px;">Remove your conversation with <strong style="color:var(--text);">${m.name}</strong>? It will be removed from your list. Other participants keep their copy.</div>
+        <div style="display:flex;gap:10px;">
+          <button class="btn-secondary" style="flex:1;" onclick="closeModal()">Cancel</button>
+          <button class="btn-danger" style="flex:1;" onclick="deleteThreadForMe('${m.id}')">Delete</button>
         </div>
       </div>
     </div>`;
@@ -6243,9 +6319,26 @@ window.saveGroupName = () => {
   const thread = state.messages.find(m => m.id === state.activeChatId);
   if (!thread) return;
   const val = document.getElementById('group-name-edit')?.value.trim();
-  if (val) thread.name = val;
+  if (val) {
+    thread.name = val;
+    sb.update('threads', { name: val }, { id: thread.id });
+  }
   showToast('Group name updated!');
   render();
+};
+
+window.handleGroupAvatarUpload = (event) => {
+  const thread = state.messages.find(m => m.id === state.activeChatId);
+  const file = event.target.files[0];
+  if (!file || !thread) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    thread.image = e.target.result;
+    sb.update('threads', { image_url: e.target.result }, { id: thread.id });
+    showToast('Group photo updated!');
+    render();
+  };
+  reader.readAsDataURL(file);
 };
 
 window.removeMemberFromGroup = (userId) => {
@@ -6255,6 +6348,7 @@ window.removeMemberFromGroup = (userId) => {
   if (idx >= 0) thread.participants.splice(idx, 1);
   if (!thread.unread) thread.unread = {};
   delete thread.unread[userId];
+  sb.update('threads', { participants: thread.participants }, { id: thread.id });
   state.chatInfoAddSearch = '';
   showToast('Member removed.');
   render();
@@ -6267,6 +6361,7 @@ window.addMemberToGroup = (userId) => {
     thread.participants.push(userId);
     if (!thread.unread) thread.unread = {};
     thread.unread[userId] = 0;
+    sb.update('threads', { participants: thread.participants }, { id: thread.id });
     const u = state.users.find(u => u.id === userId);
     thread.messages.push({
       id: 'msg' + Date.now(),
@@ -6287,6 +6382,57 @@ window.leaveGroup = () => {
   removeMemberFromGroup(state.user.id);
   state.activeChatId = null;
   navigate('messages');
+};
+
+// ── SWIPE-TO-DELETE (Message list) ──────────────────────────────────────
+let _threadTouchStartX = 0;
+let _threadTouchStartY = 0;
+window.threadTouchStart = (e) => {
+  const t = e.touches ? e.touches[0] : e;
+  _threadTouchStartX = t.clientX;
+  _threadTouchStartY = t.clientY;
+};
+window.threadTouchEnd = (e, id) => {
+  const t = e.changedTouches ? e.changedTouches[0] : e;
+  const dx = t.clientX - _threadTouchStartX;
+  const dy = t.clientY - _threadTouchStartY;
+  // Predominantly-horizontal leftward swipe past a threshold reveals Delete.
+  if (dx < -50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+    state.swipedThreadId = id;
+    render();
+  }
+};
+window.closeThreadSwipe = (e) => {
+  if (e) e.stopPropagation();
+  state.swipedThreadId = null;
+  render();
+};
+window.confirmDeleteThread = (id) => {
+  const thread = state.messages.find(m => m.id === id);
+  if (!thread) return;
+  state.modal = { type: 'deleteThread', id, name: getThreadName(thread) };
+  render(true);
+};
+window.deleteThreadForMe = (id) => {
+  const thread = state.messages.find(m => m.id === id);
+  state.modal = null;
+  state.swipedThreadId = null;
+  if (thread && state.user) {
+    const idx = thread.participants.indexOf(state.user.id);
+    if (idx >= 0) thread.participants.splice(idx, 1);
+    if (thread.unread) delete thread.unread[state.user.id];
+    sb.update('threads', { participants: thread.participants }, { id: thread.id });
+    // Guard against the 5s poller re-syncing a stale (pre-update) participants
+    // array back in during the brief window before the Supabase write lands —
+    // same pattern already used for deleted announcements.
+    try {
+      const deleted = JSON.parse(localStorage.getItem('clubapp_deleted_threads') || '[]');
+      if (!deleted.includes(id)) deleted.push(id);
+      localStorage.setItem('clubapp_deleted_threads', JSON.stringify(deleted.slice(-50)));
+    } catch(e) {}
+  }
+  showToast('Conversation removed.');
+  render();
 };
 
 window.openChat = (id) => {
@@ -6646,7 +6792,13 @@ window.handleDeleteProfile = handleDeleteProfile;
 window.confirmLogout = confirmLogout;
 window.confirmDeleteProfile = confirmDeleteProfile;
 
-window.openUser = (id) => { state.activeUserId = id; navigate('userdetail'); state.prevScreen = 'userlist'; };
+window.openUser = (id) => {
+  state.activeUserId = id;
+  state.userDetailEditing = false;
+  state.userDetailForm = {};
+  navigate('userdetail');
+  state.prevScreen = 'userlist';
+};
 
 window.removeUserAvatar = (id) => {
   const u = state.users.find(u => u.id === id);
@@ -6658,20 +6810,46 @@ window.removeUserAvatar = (id) => {
   render();
 };
 
+window.startEditUserDetail = (id) => {
+  const u = state.users.find(u => u.id === id);
+  if (!u) return;
+  state.userDetailForm = { firstName: u.firstName, lastName: u.lastName, nickname: u.nickname || '', mobile: u.mobile || '', role: u.role };
+  state.userDetailEditing = true;
+  state.error = '';
+  render();
+};
+
+window.cancelEditUserDetail = () => {
+  state.userDetailEditing = false;
+  state.userDetailForm = {};
+  state.error = '';
+  render();
+};
+
+window.setUdField = (key, value) => {
+  state.userDetailForm[key] = value;
+};
+
 window.saveUserDetail = (id) => {
   const u = state.users.find(u => u.id === id);
-  if (u) {
-    u.firstName = document.getElementById('ud-fn')?.value  || u.firstName;
-    u.lastName  = document.getElementById('ud-ln')?.value  || u.lastName;
-    u.nickname  = document.getElementById('ud-nick')?.value || u.nickname;
-    u.mobile    = document.getElementById('ud-mob')?.value  || u.mobile;
-    u.role      = document.getElementById('ud-role')?.value || u.role;
-    // Persist to Supabase
-    sb.update('profiles', {
-      first_name: u.firstName, last_name: u.lastName,
-      nickname: u.nickname, mobile: u.mobile, role: u.role,
-    }, { id });
-  }
+  if (!u) return;
+  const f = state.userDetailForm;
+  const fn   = (f.firstName ?? u.firstName).trim();
+  const ln   = (f.lastName ?? u.lastName).trim();
+  const nick = (f.nickname ?? u.nickname ?? '').trim();
+  const mob  = (f.mobile ?? u.mobile ?? '').trim();
+  const role = f.role ?? u.role;
+
+  if (!fn) { state.error = 'First name is required.'; render(); return; }
+  if (!ln) { state.error = 'Last name is required.'; render(); return; }
+
+  state.error = '';
+  u.firstName = fn; u.lastName = ln; u.nickname = nick; u.mobile = mob; u.role = role;
+  sb.update('profiles', {
+    first_name: fn, last_name: ln, nickname: nick, mobile: mob, role,
+  }, { id });
+  state.userDetailEditing = false;
+  state.userDetailForm = {};
   showToast('User saved!');
   navigate('userlist');
 };
@@ -7544,13 +7722,30 @@ async function pollAll() {
       const threadMsgs = msgs.filter(m => m.thread_id === t.id);
       let existing = state.messages.find(m => m.id === t.id);
 
+      // Skip a thread we just removed ourselves from locally — protects against
+      // a poll landing before our sb.update() above is reflected in this SELECT.
+      let _deletedThreadIds = [];
+      try { _deletedThreadIds = JSON.parse(localStorage.getItem('clubapp_deleted_threads') || '[]'); } catch(e) {}
+      if (_deletedThreadIds.includes(t.id) && (!existing || !existing.participants.includes(state.user.id))) {
+        return;
+      }
+
       if (!existing) {
         existing = {
-          id: t.id, isGroup: t.is_group, name: t.name || null,
+          id: t.id, isGroup: t.is_group, name: t.name || null, image: t.image_url || null,
           participants: t.participants || [], messages: [],
           unread: Object.fromEntries((t.participants || []).map(p => [p, 0])),
         };
         state.messages.unshift(existing);
+      } else {
+        // Sync thread-level fields another participant/admin may have changed
+        // (group name, group photo, membership) since our last poll.
+        if (existing.name !== (t.name || null)) { existing.name = t.name || null; gotNew = true; }
+        if (existing.image !== (t.image_url || null)) { existing.image = t.image_url || null; gotNew = true; }
+        if (JSON.stringify(existing.participants) !== JSON.stringify(t.participants || [])) {
+          existing.participants = t.participants || [];
+          gotNew = true;
+        }
       }
 
       const existingIds = new Set(existing.messages.map(m => m.id));
