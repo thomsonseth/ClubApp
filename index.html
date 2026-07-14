@@ -1726,7 +1726,7 @@ const state = {
     commenceDate: '',
     concludeDate: '',
     location: '',
-    reminders: ['dayBefore'],
+    reminders: ['never'],
   },
   activeTrainingSessionId: null,
   profileEditing: false,
@@ -2926,25 +2926,31 @@ function sendChatMessage() {
       from_id: state.user.id,
       text,
       is_system: false,
-    }).then(rows => {
-      if (Array.isArray(rows) && rows[0]?.id) {
+    }).then(async rows => {
+      const realId = Array.isArray(rows) && rows[0]?.id ? rows[0].id : null;
+      if (realId) {
         // Replace temp ID with real Supabase UUID so poller won't duplicate it
         const local = thread.messages.find(m => m.id === tempId);
-        if (local) local.id = rows[0].id;
+        if (local) local.id = realId;
+      }
+
+      // Notify recipients only (exclude sender) via OneSignal external_user_id filter.
+      // Gated by the same claimReminder table the 5s poller uses for this message,
+      // so whichever path (this immediate send, or a recipient's/other device's
+      // poller noticing the new row) claims it first is the only one that sends —
+      // previously this fired unconditionally here AND again from the poller,
+      // producing two pushes per message.
+      const senderName = state.user.nickname || state.user.firstName;
+      const recipients = thread.participants.filter(pid => pid !== state.user.id);
+      if (realId && recipients.length > 0 && await claimReminder(`msg_${realId}`)) {
+        sendPushNotificationToUsers(
+          `Message from ${senderName}`,
+          text.substring(0, 200),
+          `${CLUB_CONFIG.appUrl}/#screen=chat&id=${thread.id}`,
+          recipients,
+        );
       }
     });
-
-    // Notify recipients only (exclude sender) via OneSignal external_user_id filter
-    const senderName = state.user.nickname || state.user.firstName;
-    const recipients = thread.participants.filter(pid => pid !== state.user.id);
-    if (recipients.length > 0) {
-      sendPushNotificationToUsers(
-        `Message from ${senderName}`,
-        text.substring(0, 200),
-        `${CLUB_CONFIG.appUrl}/#screen=chat&id=${thread.id}`,
-        recipients,
-      );
-    }
 
     state.chatInput = '';
     render();
@@ -4100,6 +4106,7 @@ function buildCreateEvent() {
           <label class="input-label">Location</label>
           <input class="input-field" id="ce-loc" placeholder="Where?" value="${f.location}"
             oninput="saveCEField('location', this.value)"/>
+          ${f.location ? `<div style="font-size:12px;color:var(--accent);cursor:pointer;margin-top:4px;" onclick="window.location.href='https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(document.getElementById('ce-loc').value)">Preview in Maps &rarr;</div>` : ''}
         </div>
 
         <div class="input-group">
@@ -4228,8 +4235,9 @@ function buildTrainingSchedule() {
 
         <div class="input-group">
           <label class="input-label">Location</label>
-          <input class="input-field" placeholder="e.g. Club Oval — Nets" value="${f.location}"
+          <input class="input-field" id="ts-loc" placeholder="e.g. Club Oval — Nets" value="${f.location}"
             oninput="saveTSField('location', this.value)"/>
+          ${f.location ? `<div style="font-size:12px;color:var(--accent);cursor:pointer;margin-top:4px;" onclick="window.location.href='https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(document.getElementById('ts-loc').value)">Preview in Maps &rarr;</div>` : ''}
         </div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
@@ -4606,7 +4614,10 @@ function buildChat() {
 
     return `
       ${showDate ? `<div class="chat-date-divider">${msgDate}</div>` : ''}
-      <div class="chat-bubble-wrap ${isMine ? 'mine' : 'theirs'}" style="position:relative;">
+      <div class="chat-bubble-wrap ${isMine ? 'mine' : 'theirs'}" style="position:relative;"
+        ontouchstart="startLongPress('${msg.id}')" ontouchend="cancelLongPress()" ontouchmove="cancelLongPress()"
+        onmousedown="startLongPress('${msg.id}')" onmouseup="cancelLongPress()" onmouseleave="cancelLongPress()"
+        oncontextmenu="event.preventDefault();return false;">
         ${!isMine ? avatarHtml : ''}
         <div class="bubble-col ${isMine ? 'bubble-col-mine' : 'bubble-col-theirs'}">
           ${senderName}
@@ -6154,6 +6165,14 @@ window.setNewGroupName = (val) => {
 };
 
 // ── REACTIONS ─────────────────────────────────────────────────────────────
+let _longPressTimer = null;
+window.startLongPress = (msgId) => {
+  cancelLongPress();
+  _longPressTimer = setTimeout(() => { window.showReactionPicker(msgId); }, 450);
+};
+window.cancelLongPress = () => {
+  if (_longPressTimer) { clearTimeout(_longPressTimer); _longPressTimer = null; }
+};
 window.showReactionPicker = (msgId) => {
   state.reactionPickerMsgId = state.reactionPickerMsgId === msgId ? null : msgId;
   render();
@@ -6180,6 +6199,12 @@ window.toggleReaction = (msgId, emoji) => {
   }
   state.reactionPickerMsgId = null;
   render();
+  // Persist so the reaction survives refresh and is visible to other participants.
+  // temp_ ids haven't been replaced with a real Supabase UUID yet (send still in
+  // flight) — skip persisting until the real id lands, same guard used elsewhere.
+  if (!String(msgId).startsWith('temp_')) {
+    sb.update('messages', { reactions: msg.reactions }, { id: msgId });
+  }
 };
 
 // ── IMAGE SHARING ─────────────────────────────────────────────────────────
@@ -7530,7 +7555,18 @@ async function pollAll() {
 
       const existingIds = new Set(existing.messages.map(m => m.id));
       threadMsgs.forEach(m => {
-        if (existingIds.has(m.id)) return;
+        if (existingIds.has(m.id)) {
+          // Already known locally — sync reactions in case a participant
+          // reacted since our last poll (reactions aren't "new messages",
+          // so they'd otherwise never be picked up here).
+          const local = existing.messages.find(lm => lm.id === m.id);
+          const freshReactions = m.reactions || {};
+          if (local && JSON.stringify(local.reactions || {}) !== JSON.stringify(freshReactions)) {
+            local.reactions = freshReactions;
+            if (state.screen === 'chat' && state.activeChatId === t.id) gotNew = true;
+          }
+          return;
+        }
         existingIds.add(m.id);
         const newMsg = {
           id: m.id,
