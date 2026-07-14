@@ -2096,7 +2096,7 @@ function buildFacebookCards() {
     return '<div class="empty-state" style="min-width:200px;">Loading posts...</div>';
   }
   return state.facebookPosts.map(p => `
-    <div class="ann-slide-card" onclick="window.open('${p.link}','_blank')">
+    <div class="ann-slide-card" onclick="window.location.href='${p.link}'">
       ${p.image
         ? `<img class="ann-slide-img" src="${p.image}" loading="lazy" onerror="this.style.display='none'"/>`
         : `<div style="width:100%;aspect-ratio:1/1;background:var(--surface2);display:flex;align-items:center;justify-content:center;">
@@ -2116,7 +2116,7 @@ function buildInstagramCards() {
     return '<div class="empty-state" style="min-width:200px;">Loading posts...</div>';
   }
   return state.instagramPosts.map(p => `
-    <div class="ann-slide-card" onclick="window.open('${p.link}','_blank')">
+    <div class="ann-slide-card" onclick="window.location.href='${p.link}'">
       ${p.image
         ? `<img class="ann-slide-img" src="${p.image}" loading="lazy" onerror="this.style.display='none'"/>`
         : `<div style="width:100%;aspect-ratio:1/1;background:var(--surface2);display:flex;align-items:center;justify-content:center;">
@@ -2791,7 +2791,7 @@ function handleRSVP(eventId, status, currentStatus, stripeLink) {
 
   if (status === 'going' && currentStatus !== 'going' && ev.cost > 0) {
     if (stripeLink && stripeLink.startsWith('http') && !stripeLink.includes('mock')) {
-      window.open(stripeLink, '_blank');
+      window.location.href = stripeLink;
     }
     ev.rsvp[state.user.id] = 'going';
     sb.upsert('rsvps', { event_id: eventId, user_id: state.user.id, status: 'going' });
@@ -3348,7 +3348,7 @@ function buildEmailConfirm() {
         ` : `
         <div style="background:var(--surface);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:12px;text-align:center;">
           <div style="font-size:15px;color:var(--text);line-height:1.6;">
-            1. Open the email from ${CLUB_CONFIG.clubShortName}<br/>
+            1. Look for an email from <strong style="color:var(--accent)">Own Club</strong><br/>
             2. Tap the confirmation link<br/>
             3. Come back here and tap the button below
           </div>
@@ -3569,7 +3569,7 @@ function buildHome() {
                 Laurimar Cricket Club
               </span>
             </div>
-            <div class="view-all" onclick="window.open('https://www.facebook.com/LaurimarCricketClub','_blank')">View page</div>
+            <div class="view-all" onclick="window.location.href='https://www.facebook.com/LaurimarCricketClub'">View page</div>
           </div>
           <div id="facebook-feed-container" class="h-slider" style="margin-top:10px;">
             ${state.facebookPosts.length === 0
@@ -3586,7 +3586,7 @@ function buildHome() {
                 @laurimarcc
               </span>
             </div>
-            <div class="view-all" onclick="window.open('https://www.instagram.com/laurimarcc/','_blank')">View profile</div>
+            <div class="view-all" onclick="window.location.href='https://www.instagram.com/laurimarcc/'">View profile</div>
           </div>
           <div id="instagram-feed-container" class="h-slider" style="margin-top:10px;">
             ${state.instagramPosts.length === 0
@@ -4710,7 +4710,7 @@ function buildChatInfo() {
                 placeholder="Group name" style="text-align:center;font-size:16px;font-weight:700;"
                 oninput="thread_nameEdit(this.value)"/>
             </div>
-            <button class="btn-secondary" style="padding:8px 20px;font-size:13px;" onclick="saveGroupName()">Save name</button>
+            <button class="btn-primary" style="margin-top:4px;" onclick="saveGroupName()">Save Name</button>
           ` : `<div style="font-size:18px;font-weight:700;color:var(--text);">${name}</div>`}
         </div>
 
@@ -4959,7 +4959,7 @@ function buildClubInfo() {
               ${icons.mappin}
               <div class="map-addr-text">${CLUB_CONFIG.homeGround}<br/>${CLUB_CONFIG.homeAddress}</div>
             </div>
-            <div class="open-maps" onclick="window.open('${CLUB_CONFIG.mapsUrl}','_blank')">Open in Maps</div>
+            <div class="open-maps" onclick="window.location.href='${CLUB_CONFIG.mapsUrl}'">Open in Maps</div>
           </div>
         </div>
         <div>
@@ -4986,7 +4986,7 @@ function buildRegistration() {
     <div class="webview-screen">
       ${buildLogo(90)}
       <div class="webview-redirect-text">You are being redirected to<br/><strong>PlayHQ</strong><br/>to complete your registration.</div>
-      <button class="btn-primary" style="max-width:260px" onclick="window.open('${CLUB_CONFIG.registrationUrl}','_blank')">Open PlayHQ Registration</button>
+      <button class="btn-primary" style="max-width:260px" onclick="window.location.href='${CLUB_CONFIG.registrationUrl}'">Open PlayHQ Registration</button>
     </div>
   </div>`;
 }
@@ -4997,7 +4997,7 @@ function buildShop() {
     <div class="webview-screen">
       ${buildLogo(90)}
       <div class="webview-redirect-text">You are being redirected to<br/><strong>PlayHQ Shop</strong><br/>to browse and purchase items.</div>
-      <button class="btn-primary" style="max-width:260px" onclick="window.open('${CLUB_CONFIG.shopUrl}','_blank')">Open PlayHQ Shop</button>
+      <button class="btn-primary" style="max-width:260px" onclick="window.location.href='${CLUB_CONFIG.shopUrl}'">Open PlayHQ Shop</button>
     </div>
   </div>`;
 }
@@ -6519,8 +6519,15 @@ window.publishAnnouncement = () => {
       body,
       image_url: f.image || null,
     }, { id: editId });
+    if (f.sendNotification) {
+      sendPushNotification(
+        `Announcement updated: ${title}`,
+        body.substring(0, 200),
+        `${CLUB_CONFIG.appUrl}/#screen=announcements&id=${editId}`,
+      );
+    }
     reset();
-    showToast('Announcement updated!');
+    showToast(f.sendNotification ? 'Announcement updated & notification sent!' : 'Announcement updated!');
     navigate('announcements');
   } else {
     // ── CREATE new announcement ───────────────────────────────────────
@@ -6811,7 +6818,7 @@ window.openTrainingSession = (id) => {
 window.openMaps = (id) => {
   const ev = state.events.find(e => e.id === id);
   if (!ev || !ev.location) return;
-  window.open('https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(ev.location), '_blank');
+  window.location.href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(ev.location);
 };
 
 window.showModalCancelSection = () => {
@@ -7623,6 +7630,19 @@ function handleDeepLink() {
   window.history.replaceState(null, '', window.location.pathname);
   render();
 }
+
+// Handles the case where the app is already open (foreground or backgrounded
+// but still loaded) and a push notification is tapped: the OS/browser updates
+// window.location.hash on the existing tab rather than doing a fresh boot, so
+// without this listener the tap would appear to do nothing.
+window.addEventListener('hashchange', handleDeepLink);
+// Defensive fallback: if the tab was suspended and resumed with a hash already
+// present (hashchange may not fire in that case), catch it on visibility resume.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && window.location.hash) {
+    handleDeepLink();
+  }
+});
 
 // ── iOS install prompt ───────────────────────────────────────────────────
 function checkShowInstallPrompt() {
