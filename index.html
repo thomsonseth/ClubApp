@@ -2361,6 +2361,7 @@ async function handleLogin() {
   render(true);
   setTimeout(() => {
     requestNotificationPermission();
+    showPushPermissionBanner();
     if (window.OneSignal) {
       window.OneSignal.login(state.user.id).catch(() => {});
     }
@@ -2528,6 +2529,7 @@ async function handleJoin() {
   startPolling();
   if (window.OneSignal) window.OneSignal.login(state.user.id).catch(() => {});
   render();
+  setTimeout(showPushPermissionBanner, 1500);
 }
 
 async function confirmLogout() {
@@ -2625,6 +2627,7 @@ async function tryRestoreSession() {
     setTimeout(() => {
       reRegisterOneSignal();
       requestNotificationPermission();
+      showPushPermissionBanner();
     }, 1500);
   }
   return true;
@@ -7402,6 +7405,34 @@ window.importConfirm = () => {
   render();
 };
 
+// Shows an in-app banner asking for notification permission — only if the
+// browser hasn't already been asked (Notification.permission === 'default')
+// and the user hasn't previously dismissed it. This is the ONLY thing that
+// should trigger the actual browser permission prompt now that the
+// OneSignal-dashboard-managed auto-prompt has been removed.
+function showPushPermissionBanner() {
+  try {
+    if (!state.user) return;
+    if (localStorage.getItem('clubapp_notif_dismissed_' + state.user.id)) return;
+    if (!('Notification' in window) || Notification.permission !== 'default') return;
+    if (document.getElementById('notif-banner')) return;
+    const banner = document.createElement('div');
+    banner.id = 'notif-banner';
+    banner.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#1a1a1a;border-top:1px solid #333;padding:14px 16px 32px;display:flex;align-items:flex-start;gap:12px;';
+    banner.innerHTML = `
+      <div style="flex:1;">
+        <div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:3px;">Turn on notifications</div>
+        <div style="font-size:12px;color:#999;line-height:1.4;">Get alerts for messages, events and announcements from ${CLUB_CONFIG.clubShortName}.</div>
+        <button onclick="window.enableNotifications()"
+          style="margin-top:8px;background:var(--accent);color:#000;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;">Enable notifications</button>
+      </div>
+      <button onclick="window.dismissNotifBanner()"
+        style="background:none;border:none;color:#999;font-size:22px;cursor:pointer;padding:0;flex-shrink:0;line-height:1;">✕</button>
+    `;
+    document.body.appendChild(banner);
+  } catch(e) {}
+}
+
 // ── PUSH NOTIFICATIONS (OneSignal via Cloudflare Worker) ─────────────────
 // Replace the URL below with your deployed onesignal-worker URL after setup.
 // The Worker holds your API keys securely and avoids CORS issues.
@@ -7426,7 +7457,7 @@ async function requestNotificationPermission() {
 
 window.enableNotifications = async () => {
   state.showNotifBanner = false;
-  render();
+  document.getElementById('notif-banner')?.remove();
   try {
     if ('Notification' in window) {
       await Notification.requestPermission();
@@ -7445,8 +7476,8 @@ window.enableNotifications = async () => {
 
 window.dismissNotifBanner = () => {
   state.showNotifBanner = false;
-  localStorage.setItem('clubapp_notif_dismissed', '1');
-  render();
+  document.getElementById('notif-banner')?.remove();
+  if (state.user) localStorage.setItem('clubapp_notif_dismissed_' + state.user.id, '1');
 };
 
 // Call after restoring session too
@@ -7876,12 +7907,51 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ── iOS install prompt ───────────────────────────────────────────────────
+// Detects "real" Safari on iOS vs another browser using Safari's rendering
+// engine (Chrome/Firefox/Edge/etc on iOS all include "Safari" in their user
+// agent since they're WebKit-based, but append their own token too).
+function isRealSafariIOS() {
+  const ua = navigator.userAgent;
+  const isIOS = /iphone|ipad|ipod/i.test(ua);
+  if (!isIOS) return false;
+  const isOtherBrowser = /CriOS|FxiOS|EdgiOS|OPiOS|mercury/i.test(ua);
+  return !isOtherBrowser && /safari/i.test(ua);
+}
+
+function checkShowOpenInSafariPrompt() {
+  try {
+    const ua = navigator.userAgent;
+    const isIOS = /iphone|ipad|ipod/i.test(ua);
+    const isStandalone = window.navigator.standalone === true;
+    if (!isIOS || isStandalone || isRealSafariIOS()) return;
+    const dismissed = localStorage.getItem('safari_prompt_dismissed');
+    if (dismissed) return;
+    if (document.getElementById('safari-banner')) return;
+    const isChrome = /CriOS/i.test(ua);
+    const browserName = isChrome ? 'Chrome' : 'this browser';
+    const banner = document.createElement('div');
+    banner.id = 'safari-banner';
+    banner.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#1a1a1a;border-top:1px solid #333;padding:14px 16px 32px;display:flex;align-items:flex-start;gap:12px;';
+    banner.innerHTML = `
+      <div style="flex:1;">
+        <div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:3px;">Open in Safari for the full app</div>
+        <div style="font-size:12px;color:#999;line-height:1.4;">You're in ${browserName}. To install this to your Home Screen and get notifications, tap the <strong style="color:#fff;">⋮ or ⋯ menu</strong> and choose <strong style="color:#fff;">"Open in Safari."</strong></div>
+      </div>
+      <button onclick="document.getElementById('safari-banner').remove();localStorage.setItem('safari_prompt_dismissed','1')"
+        style="background:none;border:none;color:#999;font-size:22px;cursor:pointer;padding:0;flex-shrink:0;line-height:1;">✕</button>
+    `;
+    document.body.appendChild(banner);
+  } catch(e) {}
+}
+
 function checkShowInstallPrompt() {
   try {
-    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
     const isStandalone = window.navigator.standalone === true;
     const dismissed = localStorage.getItem('install_prompt_dismissed');
-    if (!isIOS || isStandalone || dismissed) return;
+    // Only guide people toward "Add to Home Screen" once they're actually in
+    // Safari — Chrome/Firefox/etc on iOS don't reliably give a proper
+    // standalone PWA (push notifications in particular need real Safari).
+    if (!isRealSafariIOS() || isStandalone || dismissed) return;
     const existing = document.getElementById('install-banner');
     if (existing) return;
     const banner = document.createElement('div');
@@ -8000,6 +8070,7 @@ function checkShowInstallPrompt() {
 
     const restored = await tryRestoreSession();
     state.restoringSession = false;
+    try { checkShowOpenInSafariPrompt(); } catch(e) {}
     try { checkShowInstallPrompt(); } catch(e) {}
     if (restored) {
       if (state.user && !state.user.onboardingComplete) {
