@@ -40,6 +40,7 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    transform: translateZ(0); /* containing block for fixed children */
   }
 
   /* Notch — desktop only */
@@ -858,6 +859,12 @@
     border-top: 1px solid var(--border);
     align-items: flex-end;
     background: var(--bg);
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 25;
+    transition: bottom 0.1s ease-out;
   }
 
   .chat-input {
@@ -3086,6 +3093,8 @@ function render(force = false) {
   // Scroll chat to bottom
   const chatEl = document.querySelector('.chat-messages');
   if (chatEl) chatEl.scrollTop = chatEl.scrollHeight;
+
+  syncChatFooterOffset();
 }
 
 function buildScreen() {
@@ -4701,7 +4710,7 @@ function buildChat() {
           <input type="file" accept="image/*" style="display:none;" onchange="sendImageMessage(event)"/>
         </label>
         <textarea class="chat-input" id="chat-input-field" placeholder="Message…" rows="1"
-          onkeydown="chatKeyDown(event)" oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,100)+'px'"
+          onkeydown="chatKeyDown(event)" oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,100)+'px';syncChatFooterOffset()"
         >${state.chatInput}</textarea>
         <button class="chat-send-btn" onclick="doSendChat()">${icons.send}</button>
       </div>
@@ -7438,6 +7447,27 @@ function showPushPermissionBanner() {
   } catch(e) {}
 }
 
+// Keeps the chat input row floating just above the keyboard (now that it's
+// position:fixed, it no longer participates in flex flow) and reserves
+// matching space at the bottom of the message list so messages aren't
+// hidden behind it. Safe to call on any screen — no-ops if not on chat.
+function syncChatFooterOffset() {
+  const inputRow = document.querySelector('.chat-input-row');
+  const messagesEl = document.querySelector('.chat-messages');
+  if (!inputRow) return;
+  const navEl = document.querySelector('.bottom-nav');
+  const navHeight = navEl ? navEl.offsetHeight : 0;
+  let kb = 0;
+  if (window.visualViewport) {
+    kb = Math.max(0, window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop);
+  }
+  // Resting (keyboard closed): sit just above the bottom nav.
+  // Keyboard open: float above the keyboard instead (which is always taller
+  // than the nav, so the now-hidden nav stays correctly covered behind it).
+  inputRow.style.bottom = Math.max(kb, navHeight) + 'px';
+  if (messagesEl) messagesEl.style.paddingBottom = (inputRow.offsetHeight + 16) + 'px';
+}
+
 // ── PUSH NOTIFICATIONS (OneSignal via Cloudflare Worker) ─────────────────
 // Replace the URL below with your deployed onesignal-worker URL after setup.
 // The Worker holds your API keys securely and avoids CORS issues.
@@ -7984,9 +8014,11 @@ function checkShowInstallPrompt() {
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', () => {
     if (window.scrollY !== 0 || window.scrollX !== 0) window.scrollTo(0, 0);
+    syncChatFooterOffset();
   });
   window.visualViewport.addEventListener('scroll', () => {
     if (window.scrollY !== 0 || window.scrollX !== 0) window.scrollTo(0, 0);
+    syncChatFooterOffset();
   });
 }
 
