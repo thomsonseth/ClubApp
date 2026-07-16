@@ -7450,7 +7450,20 @@ function showPushPermissionBanner() {
 // The bottom nav is hidden while this is active on the chat screen, since
 // it would otherwise still be visible above the keyboard (nav and the chat
 // input only share this footer area on the chat screen).
+let _kbResizeTimer = null;
 function handleKeyboardResize() {
+  // Debounced: iOS fires extra visualViewport 'resize' events as the
+  // predictive-text/QuickType bar above the keyboard changes height while
+  // typing (word suggestions updating per keystroke). Reacting to each one
+  // immediately caused the frame to visibly flicker between shrunk and full
+  // size on every keypress. Waiting briefly for things to settle fixes it
+  // without any perceptible added delay when the keyboard genuinely opens
+  // or closes.
+  clearTimeout(_kbResizeTimer);
+  _kbResizeTimer = setTimeout(applyKeyboardResize, 80);
+}
+
+function applyKeyboardResize() {
   const frame = document.getElementById('phone-frame');
   if (!frame || !window.visualViewport) return;
   const kb = Math.max(0, window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop);
