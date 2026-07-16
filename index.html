@@ -2943,9 +2943,9 @@ function handleCreateEvent() {
       }
     });
 
-    if (f.notifications?.immediate) {
+    if (!isMatch && f.notifications?.immediate) {
       sendPushNotification(
-        isMatch ? `New Match: ${newEv.title}` : `New Event: ${newEv.title}`,
+        `New Event: ${newEv.title}`,
         (newEv.description || `${formatDate(newEv.date)}${newEv.time ? ' at ' + formatTime(newEv.time) : ''}${newEv.location ? ' · ' + newEv.location : ''}`).substring(0, 200),
         `${CLUB_CONFIG.appUrl}/#screen=eventdetail&id=${newEv.id}`,
       );
@@ -3824,6 +3824,10 @@ function buildEventCard(ev, isAdmin) {
   const isTraining = ev.type === 'training';
   const isCancelled = ev.cancelled === true;
 
+  const matchSubtitle = ev.type === 'match'
+    ? [ev.grade, ev.gender === 'Male' ? 'Men' : ev.gender === 'Female' ? 'Women' : null, ev.format].filter(Boolean).join(' ')
+    : '';
+
   const rightEl = isTraining
     ? `<div class="bat-icon" style="width:36px;height:36px;border-radius:8px;background:var(--surface2);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--accent);">${icons.cricketBat}</div>`
     : (ev.image ? `<div style="width:90px;min-width:90px;height:90px;border-radius:12px;overflow:hidden;flex-shrink:0;"><img src="${ev.image}" style="width:100%;height:100%;object-fit:cover;object-position:center top;display:block;"/></div>` : '');
@@ -3852,6 +3856,7 @@ function buildEventCard(ev, isAdmin) {
     <div style="display:flex;gap:12px;align-items:flex-start;">
       <div style="flex:1;min-width:0;">
         <div class="event-card-title" style="${isCancelled ? 'text-decoration:line-through;color:var(--text-muted);' : ''}">${ev.title}</div>
+        ${matchSubtitle ? `<div style="font-size:12px;color:var(--accent);font-weight:600;margin-top:2px;">${matchSubtitle}</div>` : ''}
         <div class="event-card-meta">
           <span>${formatDate(ev.date)}</span>
           <span>${ev.time}${ev.finishTime ? ' – ' + ev.finishTime + (ev.finishDate && ev.finishDate !== ev.date ? ' (+1 day)' : '') : ''}</span>
@@ -4111,6 +4116,7 @@ function buildCreateEvent() {
         <option value="2 Day" ${f.format==='2 Day'?'selected':''}>2 Day</option>
         <option value="1 Day" ${f.format==='1 Day'?'selected':''}>1 Day</option>
         <option value="T20"   ${f.format==='T20'?'selected':''}>T20</option>
+        <option value="Practice match" ${f.format==='Practice match'?'selected':''}>Practice match</option>
       </select>
     </div>
 
@@ -4268,7 +4274,7 @@ function buildCreateEvent() {
           </select>
         </div>`}
 
-        ${notifSection}
+        ${isMatch ? '' : notifSection}
 
         ${state.error ? `<div class="error-msg">${state.error}</div>` : ''}
         <button class="btn-primary" onclick="doCreateEvent()">${publishLabel}</button>
@@ -5471,7 +5477,7 @@ function buildModal() {
 const WHEEL_ITEM_H = 44;
 let _wheelDateItems = [];
 const _wheelHourItems = ['1','2','3','4','5','6','7','8','9','10','11','12'];
-const _wheelMinuteItems = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
+const _wheelMinuteItems = ['00', '15', '30', '45'];
 const _wheelAmpmItems = ['AM', 'PM'];
 
 // Build the scrollable date range: a year back to two years forward from
