@@ -1726,6 +1726,7 @@ const state = {
   createEventForm: {
     category: 'social', title: '', date: '', time: '', finishTime: '', finishDate: '', location: '',
     description: '', hasCost: false, cost: '', recipients: 'all',
+    opponent: '', gender: '', format: '', grade: '', homeAway: 'Home', // match-specific fields
     image: null,           // base64 uploaded image
     aiPrompt: '',          // AI image prompt
     aiGenerating: false,   // loading state
@@ -1958,6 +1959,9 @@ function rowToEvent(r) {
     round: r.round || null,
     homeTeam: r.home_team || null,
     awayTeam: r.away_team || null,
+    gender: r.gender || null,
+    format: r.format || null,
+    homeAway: r.home_away || null,
     cancelled: r.cancelled || false,
     cancelNote: r.cancel_note || '',
     fromSchedule: r.from_schedule || false,
@@ -1988,6 +1992,9 @@ function eventToRow(ev) {
     round: ev.round || null,
     home_team: ev.homeTeam || null,
     away_team: ev.awayTeam || null,
+    gender: ev.gender || null,
+    format: ev.format || null,
+    home_away: ev.homeAway || null,
     cancelled: ev.cancelled || false,
     cancel_note: ev.cancelNote || null,
     from_schedule: ev.fromSchedule || false,
@@ -2838,10 +2845,32 @@ function handleRSVP(eventId, status, currentStatus, stripeLink) {
   render();
 }
 
+function blankCreateEventForm() {
+  return {
+    category: 'social', title: '', date: '', time: '', finishTime: '', finishDate: '', location: '',
+    description: '', hasCost: false, cost: '', recipients: 'all',
+    opponent: '', gender: '', format: '', grade: '', homeAway: 'Home',
+    image: null, aiPrompt: '', aiGenerating: false, aiImage: null,
+    stripeLink: null, imageTab: 'upload',
+    notifications: { immediate: false, weekly: false, oneWeekBefore: false, oneDayBefore: false },
+  };
+}
+
 function handleCreateEvent() {
   const f = state.createEventForm;
-  if (!f.title || !f.date) { state.error = 'Title and date are required.'; render(); return; }
+  const isMatch = f.category === 'match';
+
+  // Matches are validated on opponent + grade + date instead of a free-text title,
+  // since the title is auto-generated from opponent/home-away below.
+  if (isMatch) {
+    if (!f.opponent || !f.grade || !f.date) { state.error = 'Opponent, grade and date are required.'; render(); return; }
+  } else {
+    if (!f.title || !f.date) { state.error = 'Title and date are required.'; render(); return; }
+  }
   const stripeLink = f.hasCost && f.cost && f.stripeLink ? f.stripeLink : null;
+  const matchTitle = isMatch
+    ? (f.homeAway === 'Away' ? `${f.opponent} vs ${CLUB_CONFIG.clubShortName}` : `${CLUB_CONFIG.clubShortName} vs ${f.opponent}`)
+    : f.title;
 
   if (state.editingEventId) {
     // ── UPDATE existing event ──
@@ -2871,13 +2900,7 @@ function handleCreateEvent() {
     }
     const editedId = state.editingEventId;
     state.editingEventId = null;
-    state.createEventForm = {
-      category: 'social', title: '', date: '', time: '', finishTime: '', finishDate: '', location: '',
-      description: '', hasCost: false, cost: '', recipients: 'all',
-      image: null, aiPrompt: '', aiGenerating: false, aiImage: null,
-      stripeLink: null, imageTab: 'upload',
-      notifications: { immediate: false, weekly: false, oneWeekBefore: false, oneDayBefore: false },
-    };
+    state.createEventForm = blankCreateEventForm();
     showToast('Event updated!');
     state.activeEventId = editedId;
     navigate('eventdetail');
@@ -2887,7 +2910,7 @@ function handleCreateEvent() {
     const newEv = {
       id: 'e' + Date.now(),
       type: f.category || 'social',
-      title: f.title,
+      title: matchTitle,
       date: f.date,
       time: f.time,
       finishTime: f.finishTime || '',
@@ -2900,34 +2923,54 @@ function handleCreateEvent() {
       notifications: { ...f.notifications },
       rsvp: {},
       team: [],
+      ...(isMatch ? {
+        gender: f.gender || null,
+        format: f.format || null,
+        grade: f.grade || null,
+        homeAway: f.homeAway || null,
+        homeTeam: f.homeAway === 'Away' ? f.opponent : CLUB_CONFIG.clubShortName,
+        awayTeam: f.homeAway === 'Away' ? CLUB_CONFIG.clubShortName : f.opponent,
+      } : {}),
     };
     state.events.unshift(newEv);
-    // Persist to Supabase (fire and forget — get real ID back async)
-    sb.insert('events', eventToRow(newEv)).then(rows => {
+    // Persist to Supabase (fire and forget — get real ID back async).
+    // newEv and the array entry are the same object reference, so mutating
+    // .id here also updates newEv.id — but state.activeEventId (a copied
+    // string, set below for matches) needs a manual refresh once this lands.
+    const insertPromise = sb.insert('events', eventToRow(newEv)).then(rows => {
       if (Array.isArray(rows) && rows[0]?.id) {
-        // Update local event with real Supabase UUID
-        const local = state.events.find(e => e.id === newEv.id);
-        if (local) local.id = rows[0].id;
+        newEv.id = rows[0].id;
       }
     });
 
     if (f.notifications?.immediate) {
       sendPushNotification(
-        `New Event: ${newEv.title}`,
+        isMatch ? `New Match: ${newEv.title}` : `New Event: ${newEv.title}`,
         (newEv.description || `${formatDate(newEv.date)}${newEv.time ? ' at ' + formatTime(newEv.time) : ''}${newEv.location ? ' · ' + newEv.location : ''}`).substring(0, 200),
         `${CLUB_CONFIG.appUrl}/#screen=eventdetail&id=${newEv.id}`,
       );
     }
 
-    state.createEventForm = {
-      category: 'social', title: '', date: '', time: '', finishTime: '', finishDate: '', location: '',
-      description: '', hasCost: false, cost: '', recipients: 'all',
-      image: null, aiPrompt: '', aiGenerating: false, aiImage: null,
-      stripeLink: null, imageTab: 'upload',
-      notifications: { immediate: false, weekly: false, oneWeekBefore: false, oneDayBefore: false },
-    };
-    navigate('events');
-    state.activeTab = 'events';
+    state.createEventForm = blankCreateEventForm();
+
+    if (isMatch) {
+      // Send straight into the existing Select Team screen so the admin can
+      // pick the squad — same flow already used for imported fixtures.
+      state.activeEventId = newEv.id;
+      state.selectedPlayers = [];
+      showToast('Match scheduled — now select your team.');
+      navigate('teamselect');
+      state.prevScreen = 'events';
+      // Once the real Supabase UUID comes back, keep activeEventId pointed
+      // at it so "Publish selection" saves against the right row.
+      const tempId = newEv.id;
+      insertPromise.then(() => {
+        if (state.activeEventId === tempId) state.activeEventId = newEv.id;
+      });
+    } else {
+      navigate('events');
+      state.activeTab = 'events';
+    }
   }
 }
 
@@ -3886,10 +3929,15 @@ function buildEvents() {
               <span>${icons.cricketBat}</span> Manage training schedule
              </button>`
           : tab === 'matches'
-          ? `<button class="btn-primary" style="display:flex;align-items:center;justify-content:center;gap:8px;" onclick="navigate('importfixture')">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              Import fixture
-             </button>`
+          ? `<div style="display:flex;gap:8px;">
+              <button class="btn-primary" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="navigate('importfixture')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                Import fixture
+               </button>
+              <button class="btn-primary" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="openScheduleMatch()">
+                <span>${icons.plus}</span> Schedule match
+               </button>
+             </div>`
           : `<button class="btn-primary" style="display:flex;align-items:center;justify-content:center;gap:8px;" onclick="openCreateEvent()">
               <span>${icons.plus}</span> Create event
              </button>`)
@@ -3904,7 +3952,7 @@ function buildEvents() {
           <button class="filter-btn ${filter==='past'?'active':''}" onclick="setEventsFilter('past')">Past</button>
         </div>
         <div style="height:1px;background:var(--border)"></div>
-        ${cards || `<div class="empty-state">No ${filter} events</div>`}
+        ${cards || `<div class="empty-state">No ${filter} ${tab === 'matches' ? 'matches' : tab === 'training' ? 'training sessions' : 'events'}</div>`}
       </div>
     </div>
   </div>`;
@@ -4038,6 +4086,54 @@ function buildCreateEvent() {
   const f = state.createEventForm;
   const notif = f.notifications;
   const activeImage = f.image; // only uploaded images now
+  const isMatch = f.category === 'match';
+
+  // ── Match-specific fields (Opponent, Gender, Format, Grade, Home/Away) ──
+  const matchFieldsSection = `
+    <div class="input-group">
+      <label class="input-label">Opponent</label>
+      <input class="input-field" id="ce-opponent" placeholder="Opposition club/team name" value="${f.opponent}"
+        oninput="saveCEField('opponent', this.value)"/>
+    </div>
+
+    <div class="input-group">
+      <label class="input-label">Gender</label>
+      <div class="mode-toggle-row">
+        <button class="mode-btn ${f.gender==='Male'?'active':''}" onclick="setMatchField('gender','Male')">Males</button>
+        <button class="mode-btn ${f.gender==='Female'?'active':''}" onclick="setMatchField('gender','Female')">Females</button>
+      </div>
+    </div>
+
+    <div class="input-group">
+      <label class="input-label">Format</label>
+      <select id="ce-format" onchange="saveCEField('format', this.value)">
+        <option value=""      ${!f.format?'selected':''}>Select format</option>
+        <option value="2 Day" ${f.format==='2 Day'?'selected':''}>2 Day</option>
+        <option value="1 Day" ${f.format==='1 Day'?'selected':''}>1 Day</option>
+        <option value="T20"   ${f.format==='T20'?'selected':''}>T20</option>
+      </select>
+    </div>
+
+    <div class="input-group">
+      <label class="input-label">Grade</label>
+      <select id="ce-grade" onchange="saveCEField('grade', this.value)">
+        <option value=""       ${!f.grade?'selected':''}>Select grade</option>
+        <option value="1st XI" ${f.grade==='1st XI'?'selected':''}>1st XI</option>
+        <option value="2nd XI" ${f.grade==='2nd XI'?'selected':''}>2nd XI</option>
+        <option value="3rd XI" ${f.grade==='3rd XI'?'selected':''}>3rd XI</option>
+        <option value="4th XI" ${f.grade==='4th XI'?'selected':''}>4th XI</option>
+        <option value="5th XI" ${f.grade==='5th XI'?'selected':''}>5th XI</option>
+        <option value="Vets"   ${f.grade==='Vets'?'selected':''}>Vets</option>
+      </select>
+    </div>
+
+    <div class="input-group">
+      <label class="input-label">Home or Away</label>
+      <div class="mode-toggle-row">
+        <button class="mode-btn ${f.homeAway==='Home'?'active':''}" onclick="setMatchField('homeAway','Home')">Home</button>
+        <button class="mode-btn ${f.homeAway==='Away'?'active':''}" onclick="setMatchField('homeAway','Away')">Away</button>
+      </div>
+    </div>`;
 
   // ── Image section ──
   const imagePreview = activeImage
@@ -4120,16 +4216,22 @@ function buildCreateEvent() {
         </div>`).join('')}
     </div>`;
 
+  const screenTitle = isMatch ? 'Schedule Match' : (state.editingEventId ? 'Edit Event' : 'Create Event');
+  const publishLabel = isMatch ? 'Schedule match' : (state.editingEventId ? 'Save changes' : 'Publish event');
+
   return `<div class="screen">
-    ${buildTopBanner({ title: state.editingEventId ? 'Edit Event' : 'Create Event', showBack: true })}
+    ${buildTopBanner({ title: screenTitle, showBack: true })}
     <div class="screen-scroll">
       <div class="create-event-content">
 
+        ${isMatch ? '' : `
         <div class="input-group">
           <label class="input-label">Title</label>
           <input class="input-field" id="ce-title" placeholder="Event title" value="${f.title}"
             oninput="saveCEField('title', this.value)"/>
-        </div>
+        </div>`}
+
+        ${isMatch ? matchFieldsSection : ''}
 
         <div class="input-group">
           <label class="input-label">Date &amp; Time</label>
@@ -4140,22 +4242,23 @@ function buildCreateEvent() {
         </div>
 
         <div class="input-group">
-          <label class="input-label">Location</label>
+          <label class="input-label">Venue</label>
           <input class="input-field" id="ce-loc" placeholder="Where?" value="${f.location}"
             oninput="saveCEField('location', this.value)"/>
           ${f.location ? `<div style="font-size:12px;color:var(--accent);cursor:pointer;margin-top:4px;" onclick="window.location.href='https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(document.getElementById('ce-loc').value)">Preview in Maps &rarr;</div>` : ''}
         </div>
 
         <div class="input-group">
-          <label class="input-label">Description</label>
-          <textarea class="input-field" id="ce-desc" placeholder="What's happening?"
+          <label class="input-label">${isMatch ? 'Additional Information' : 'Description'}</label>
+          <textarea class="input-field" id="ce-desc" placeholder="${isMatch ? 'e.g. entrance to ground is off Smith Street' : "What's happening?"}"
             oninput="saveCEField('description', this.value)">${f.description}</textarea>
         </div>
 
-        ${imgSourceSection}
+        ${isMatch ? '' : imgSourceSection}
 
-        ${costSection}
+        ${isMatch ? '' : costSection}
 
+        ${isMatch ? '' : `
         <div class="input-group">
           <label class="input-label">Recipients</label>
           <select id="ce-recv" onchange="saveCEField('recipients', this.value)">
@@ -4163,12 +4266,12 @@ function buildCreateEvent() {
             <option value="players" ${f.recipients==='players'?'selected':''}>Players only</option>
             <option value="admins"  ${f.recipients==='admins' ?'selected':''}>Administrators only</option>
           </select>
-        </div>
+        </div>`}
 
         ${notifSection}
 
         ${state.error ? `<div class="error-msg">${state.error}</div>` : ''}
-        <button class="btn-primary" onclick="doCreateEvent()">${state.editingEventId ? 'Save changes' : 'Publish event'}</button>
+        <button class="btn-primary" onclick="doCreateEvent()">${publishLabel}</button>
         <div style="height:8px;"></div>
       </div>
     </div>
@@ -4499,7 +4602,7 @@ function buildImportFixture() {
 
 // ── TEAM SELECT ───────────────────────────────────────────────────────────
 function buildTeamSelect() {
-  const players = state.users.filter(u => u.role === 'Player' || u.role === 'Captain');
+  const players = state.users.filter(u => u.role === 'Player' || u.role === 'Captain' || u.role === 'Administrator');
   const count = state.selectedPlayers.length;
 
   const rows = players.map(p => {
@@ -6184,11 +6287,22 @@ window.toggleNotif = (key) => {
   render();
 };
 
+window.setMatchField = (key, value) => {
+  state.createEventForm[key] = value;
+  // Prefill the venue with the home ground when switching to Home, but only
+  // if the admin hasn't already typed something in — never clobber an edit.
+  if (key === 'homeAway' && value === 'Home' && !state.createEventForm.location) {
+    state.createEventForm.location = `${CLUB_CONFIG.homeGround}, ${CLUB_CONFIG.homeAddress}`;
+  }
+  render();
+};
+
 window.openEditEvent = (id) => {
   const ev = state.events.find(e => e.id === id);
   if (!ev) return;
   state.editingEventId = id;
   state.createEventForm = {
+    ...blankCreateEventForm(),
     category:    ev.type || 'social',
     title:       ev.title || '',
     date:        ev.date  || '',
@@ -6200,10 +6314,15 @@ window.openEditEvent = (id) => {
     hasCost:     ev.cost > 0,
     cost:        ev.cost > 0 ? String(ev.cost) : '',
     recipients:  ev.recipients  || 'all',
+    // Match-specific fields, preserved so editing a match (via the generic
+    // Edit Event screen) doesn't clobber them on save.
+    opponent:    ev.type === 'match' ? (ev.homeAway === 'Away' ? ev.homeTeam : ev.awayTeam) || '' : '',
+    gender:      ev.gender || '',
+    format:      ev.format || '',
+    grade:       ev.grade  || '',
+    homeAway:    ev.homeAway || 'Home',
     image:       ev.image       || null,
-    aiPrompt: '', aiGenerating: false, aiImage: null,
     stripeLink:  ev.stripeLink  || null,
-    imageTab:    'upload',
     notifications: ev.notifications
       ? { ...ev.notifications }
       : { immediate: false, weekly: false, oneWeekBefore: false, oneDayBefore: false },
@@ -6216,12 +6335,21 @@ window.openEditEvent = (id) => {
 window.openCreateEvent = () => {
   // Always reset form when creating a new event
   state.editingEventId = null;
+  state.createEventForm = blankCreateEventForm();
+  state.error = '';
+  navigate('createevent');
+  state.prevScreen = 'events';
+};
+
+window.openScheduleMatch = () => {
+  // Manually-scheduled (unofficial/practice) matches — same underlying
+  // events table + createevent screen as openCreateEvent, but pre-set to
+  // the 'match' category and defaulted to the home ground.
+  state.editingEventId = null;
   state.createEventForm = {
-    category: 'social', title: '', date: '', time: '', finishTime: '', finishDate: '', location: '',
-    description: '', hasCost: false, cost: '', recipients: 'all',
-    image: null, aiPrompt: '', aiGenerating: false, aiImage: null,
-    stripeLink: null, imageTab: 'upload',
-    notifications: { immediate: false, weekly: false, oneWeekBefore: false, oneDayBefore: false },
+    ...blankCreateEventForm(),
+    category: 'match',
+    location: `${CLUB_CONFIG.homeGround}, ${CLUB_CONFIG.homeAddress}`,
   };
   state.error = '';
   navigate('createevent');
