@@ -4074,6 +4074,7 @@ function buildEventDetail() {
         ${ev.image ? `<div style="width:100%;border-radius:16px;overflow:hidden;"><img src="${ev.image}" style="width:100%;height:auto;display:block;"/></div>` : ''}
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <span class="event-type-badge">${ev.type}</span>
+          ${ev.type === 'match' && buildMatchDescriptor(ev) ? `<span style="font-size:12px;background:var(--surface2);border-radius:8px;padding:5px 10px;color:var(--text-muted);font-weight:600;">${buildMatchDescriptor(ev)}</span>` : ''}
           ${isAdmin ? `<button class="btn-secondary" style="width:auto;padding:6px 16px;font-size:13px;" onclick="openEditEvent('${ev.id}')">Edit Event</button>` : ''}
           ${isAdmin ? `<button class="btn-secondary" style="width:auto;padding:6px 16px;font-size:13px;color:#ff4444;border-color:#ff4444;" onclick="confirmDeleteEvent('${ev.id}')">Delete</button>` : ''}
         </div>
@@ -4161,9 +4162,9 @@ function buildCreateEvent() {
       <label class="input-label">Format</label>
       <select id="ce-format" onchange="saveCEField('format', this.value)">
         <option value=""      ${!f.format?'selected':''}>Select format</option>
-        <option value="2 Day" ${f.format==='2 Day'?'selected':''}>2 Day</option>
-        <option value="1 Day" ${f.format==='1 Day'?'selected':''}>1 Day</option>
-        <option value="T20"   ${f.format==='T20'?'selected':''}>T20</option>
+        <option value="2 Day match"    ${f.format==='2 Day match'?'selected':''}>2 Day match</option>
+        <option value="One Day match"  ${f.format==='One Day match'?'selected':''}>One Day match</option>
+        <option value="T20 match"      ${f.format==='T20 match'?'selected':''}>T20 match</option>
         <option value="Practice match" ${f.format==='Practice match'?'selected':''}>Practice match</option>
       </select>
     </div>
