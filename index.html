@@ -2755,6 +2755,7 @@ function navigate(screen, extra = {}) {
   state.screen = screen;
   state.error = '';
   if (screen === 'profile') state.profileEditing = false;
+  if (screen === 'joinclub') state.joinForm = { nickname: '', role: 'player', loading: false, avatarPreview: null };
   if (['login','signup','forgotpassword','splash','emailconfirmed'].includes(screen)) {
     state.loading = false;
   }
