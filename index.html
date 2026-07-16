@@ -4074,7 +4074,6 @@ function buildEventDetail() {
         ${ev.image ? `<div style="width:100%;border-radius:16px;overflow:hidden;"><img src="${ev.image}" style="width:100%;height:auto;display:block;"/></div>` : ''}
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <span class="event-type-badge">${ev.type}</span>
-          ${ev.type === 'match' && buildMatchDescriptor(ev) ? `<span style="font-size:12px;background:var(--surface2);border-radius:8px;padding:5px 10px;color:var(--text-muted);font-weight:600;">${buildMatchDescriptor(ev)}</span>` : ''}
           ${isAdmin ? `<button class="btn-secondary" style="width:auto;padding:6px 16px;font-size:13px;" onclick="openEditEvent('${ev.id}')">Edit Event</button>` : ''}
           ${isAdmin ? `<button class="btn-secondary" style="width:auto;padding:6px 16px;font-size:13px;color:#ff4444;border-color:#ff4444;" onclick="confirmDeleteEvent('${ev.id}')">Delete</button>` : ''}
         </div>
@@ -4082,6 +4081,7 @@ function buildEventDetail() {
         <div style="display:flex;flex-direction:column;gap:8px;">
           <div class="event-detail-meta">${icons.clock} ${formatDate(ev.date)} at ${formatTime(ev.time)}</div>
           <div class="event-detail-meta">${icons.mappin} ${ev.location} &nbsp;<span style="color:var(--teal);cursor:pointer;font-size:13px;" onclick="openMaps('${ev.id}')">Open in Maps</span></div>
+          ${ev.type === 'match' && buildMatchDescriptor(ev) ? `<div style="font-size:12px;background:var(--surface2);border-radius:8px;padding:4px 8px;display:inline-block;color:var(--text-muted);width:fit-content;">${buildMatchDescriptor(ev)}</div>` : ''}
         </div>
         ${ev.description ? `<div class="card"><div style="font-size:14px;color:var(--text-muted);line-height:1.6;">${ev.description}</div></div>` : ''}
         ${ev.cost > 0 ? `<div style="color:var(--teal);font-size:15px;font-weight:700;">🎟 $${ev.cost.toFixed(2)} per person${ev.stripeLink ? ' — tap Going to pay online' : ''}</div>` : ''}
