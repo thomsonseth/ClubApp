@@ -7768,18 +7768,17 @@ async function pollAll() {
   }
 
   // ── Poll Facebook feed every 5 minutes ───────────────────────────────
+  // Refreshes the in-app feed preview only. Push notifications for new
+  // Facebook posts are handled solely by the server-side rss-proxy Worker's
+  // Cron Trigger — that runs once centrally regardless of how many devices
+  // have the app open, with proper dedup. This client poll used to ALSO
+  // call sendPushNotification() (a full broadcast to every member) on top
+  // of that, independently on every open device — meaning two people having
+  // the app open when a post went up meant two separate broadcasts to
+  // everyone. Removed; this poll now only ever updates the visible feed.
   if (now - _lastFacebookPoll > 300000) {
     _lastFacebookPoll = now;
-    const prevFirstFb = state.facebookPosts[0]?.link || '';
     await fetchFacebookFeed();
-    if (state.facebookPosts.length > 0 && state.facebookPosts[0]?.link !== prevFirstFb && prevFirstFb !== '') {
-      const newFbPost = state.facebookPosts[0];
-      sendPushNotification(
-        `New post from ${CLUB_CONFIG.clubShortName}`,
-        newFbPost.title || `Check out the latest from ${CLUB_CONFIG.clubShortName}`,
-        newFbPost.link
-      );
-    }
     if (state.screen === 'home') {
       const fbEl = document.getElementById('facebook-feed-container');
       if (fbEl) fbEl.innerHTML = buildFacebookCards();
@@ -7787,21 +7786,12 @@ async function pollAll() {
   }
 
   // ── Poll Instagram feed every 5 minutes ──────────────────────────────
+  // Same as above — feed preview only. Instagram was never intended to
+  // send push notifications at all (no server-side check exists for it,
+  // by design); this client-side broadcast was unintentional.
   if (now - _lastInstagramPoll > 300000) {
     _lastInstagramPoll = now;
-    const prevCount = state.instagramPosts.length;
-    const prevFirst = state.instagramPosts[0]?.link || '';
     await fetchInstagramFeed();
-    // Notify if there's a new post
-    if (state.instagramPosts.length > 0 && state.instagramPosts[0]?.link !== prevFirst && prevFirst !== '') {
-      const newPost = state.instagramPosts[0];
-      sendPushNotification(
-        `New post from ${CLUB_CONFIG.clubShortName}`,
-        newPost.title || `Check out the latest from ${CLUB_CONFIG.clubShortName}`,
-        newPost.link
-      );
-    }
-    // Update feed in-place — no scroll reset
     if (state.screen === 'home') {
       const feedEl = document.getElementById('instagram-feed-container');
       if (feedEl) feedEl.innerHTML = buildInstagramCards();
