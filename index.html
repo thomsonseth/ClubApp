@@ -7501,12 +7501,22 @@ function applyKeyboardResize() {
   const frame = document.getElementById('phone-frame');
   if (!frame || !window.visualViewport) return;
   const kb = Math.max(0, window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop);
-  const onChatScreen = !!document.getElementById('chat-input-field');
   const navEl = document.querySelector('.bottom-nav');
 
-  if (kb > 40 && onChatScreen) {
+  if (kb > 40) {
     frame.style.height = window.visualViewport.height + 'px';
     if (navEl) navEl.style.display = 'none';
+    // The browser's native "scroll the focused field into view" behavior is
+    // blocked (html/body overflow:hidden, scroll position forced to 0,0) —
+    // that block is what fixed the nav-bar-above-keyboard bug, but it also
+    // silently broke every other screen's ability to reveal a focused field
+    // lower in a form (e.g. the password field on signup). Doing it
+    // ourselves, scoped to whichever scrollable container actually holds
+    // the field, replaces that native behavior everywhere, not just chat.
+    const active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) {
+      requestAnimationFrame(() => active.scrollIntoView({ block: 'center', behavior: 'smooth' }));
+    }
   } else {
     frame.style.height = '';
     if (navEl) navEl.style.display = '';
@@ -7968,6 +7978,11 @@ function handleDeepLink() {
 // window.location.hash on the existing tab rather than doing a fresh boot, so
 // without this listener the tap would appear to do nothing.
 window.addEventListener('hashchange', handleDeepLink);
+document.addEventListener('focusin', (e) => {
+  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+    setTimeout(applyKeyboardResize, 50);
+  }
+});
 // Defensive fallback: if the tab was suspended and resumed with a hash already
 // present (hashchange may not fire in that case), catch it on visibility resume.
 document.addEventListener('visibilitychange', () => {
