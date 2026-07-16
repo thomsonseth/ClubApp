@@ -2047,7 +2047,7 @@ async function loadAppData(silent = false) {
         if (ev) {
           if (!ev.team) ev.team = [];
           const u = state.users.find(u => u.id === t.user_id);
-          if (u) ev.team.push({ ...u, role: t.role });
+          if (u) ev.team.push({ id: t.user_id, captainRole: t.role || '' });
         }
       });
     }
@@ -2750,6 +2750,25 @@ function formatDate(dateStr) {
   return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+// Same as formatDate but without the weekday — used in push notification
+// body text where a shorter date reads more naturally.
+function formatDateShort(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+// Builds the "1st XI Men Practice match" style descriptor from a match
+// event's grade/gender/format fields, skipping any that aren't set (e.g.
+// fixtures imported from PlayHQ that only carry a grade). Pass
+// possessive=true for push notification text ("Mens"/"Womens").
+function buildMatchDescriptor(ev, possessive = false) {
+  const genderWord = ev.gender === 'Male'   ? (possessive ? 'Mens'   : 'Men')
+                    : ev.gender === 'Female' ? (possessive ? 'Womens' : 'Women')
+                    : null;
+  return [ev.grade, genderWord, ev.format].filter(Boolean).join(' ');
+}
+
 function formatTime(t) { return t || ''; }
 
 function isUpcoming(dateStr) {
@@ -3062,11 +3081,29 @@ function publishTeamSelection() {
   const ev = state.events.find(e => e.id === state.activeEventId);
   if (ev) {
     ev.team = state.selectedPlayers.map(p => ({ ...p }));
-    sendPushNotification(
-      `Team Selected: ${ev.title}`,
-      `The team for ${formatDate(ev.date)} has been announced. Check the app to see if you're playing.`,
-      `${CLUB_CONFIG.appUrl}/#screen=eventdetail&id=${state.activeEventId}`,
-    );
+    // Persist to Supabase — replace this event's rows in team_selections
+    // wholesale so removed players drop off too. Fire-and-forget, matching
+    // the pattern used elsewhere for event/message writes in this app.
+    (async () => {
+      await sb.delete('team_selections', { event_id: ev.id });
+      if (ev.team.length > 0) {
+        await sb.insert('team_selections', ev.team.map(p => ({
+          event_id: ev.id, user_id: p.id, role: p.captainRole || null,
+        })));
+      }
+    })();
+
+    // Targeted push — only to the players just selected, not the whole club.
+    const selectedIds = ev.team.map(p => p.id);
+    if (selectedIds.length > 0) {
+      const descriptor = buildMatchDescriptor(ev, true); // possessive: "Mens"/"Womens"
+      sendPushNotificationToUsers(
+        `Team Selected: ${ev.title}`,
+        `You have been selected for the ${descriptor || 'match'} on ${formatDateShort(ev.date)}`,
+        `${CLUB_CONFIG.appUrl}/#screen=eventdetail&id=${state.activeEventId}`,
+        selectedIds,
+      );
+    }
   }
   state.selectedPlayers = [];
   navigate('eventdetail', { activeEventId: state.activeEventId });
@@ -3561,7 +3598,7 @@ function buildHome() {
         <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px;">${m.title}</div>
         <div style="font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:4px;">${icons.clock} ${formatTime(m.time)}</div>
         <div style="font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:4px;margin-top:3px;">${icons.mappin} ${m.location}</div>
-        ${m.grade ? `<div style="margin-top:8px;font-size:12px;background:var(--surface2);border-radius:8px;padding:4px 8px;display:inline-block;color:var(--text-muted);">${m.grade}</div>` : ''}
+        ${buildMatchDescriptor(m) ? `<div style="margin-top:8px;font-size:12px;background:var(--surface2);border-radius:8px;padding:4px 8px;display:inline-block;color:var(--text-muted);">${buildMatchDescriptor(m)}</div>` : ''}
       </div>
       ${m.image ? `<div style="width:90px;min-width:90px;height:90px;flex-shrink:0;border-radius:10px;overflow:hidden;margin:12px 12px 12px 0;"><img src="${m.image}" style="width:100%;height:100%;object-fit:cover;object-position:center top;display:block;"/></div>` : ''}
     </div>`;
@@ -3824,9 +3861,7 @@ function buildEventCard(ev, isAdmin) {
   const isTraining = ev.type === 'training';
   const isCancelled = ev.cancelled === true;
 
-  const matchSubtitle = ev.type === 'match'
-    ? [ev.grade, ev.gender === 'Male' ? 'Men' : ev.gender === 'Female' ? 'Women' : null, ev.format].filter(Boolean).join(' ')
-    : '';
+  const matchSubtitle = ev.type === 'match' ? buildMatchDescriptor(ev) : '';
 
   const rightEl = isTraining
     ? `<div class="bat-icon" style="width:36px;height:36px;border-radius:8px;background:var(--surface2);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--accent);">${icons.cricketBat}</div>`
@@ -4012,10 +4047,10 @@ function buildEventDetail() {
         <div class="card">
           ${ev.team.map(p => { const u = state.users.find(u=>u.id===p.id); return u ? `<div style="font-size:14px;color:var(--text);padding:4px 0;">${u.firstName} ${u.lastName} ${p.captainRole?`<span style="color:var(--teal);font-size:12px;">(${p.captainRole})</span>`:''}</div>` : ''; }).join('')}
         </div>
-        ${isAdmin ? `<button class="btn-secondary" style="margin-top:10px" onclick="navigate('teamselect')">Edit selection</button>` : ''}
+        ${isAdmin ? `<button class="btn-secondary" style="margin-top:10px" onclick="openSelectPlayers('${ev.id}')">Select players</button>` : ''}
       ` : `
         <div class="empty-state">Team not yet selected</div>
-        ${isAdmin ? `<button class="btn-primary" style="margin-top:10px" onclick="navigate('teamselect')">Select team</button>` : ''}
+        ${isAdmin ? `<button class="btn-primary" style="margin-top:10px" onclick="openSelectPlayers('${ev.id}')">Select players</button>` : ''}
       `}
     </div>` : '';
 
@@ -6119,6 +6154,14 @@ window.openEvent = (id) => {
   state.selectedPlayers = [];
   navigate('eventdetail');
   state.prevScreen = 'events';
+};
+
+window.openSelectPlayers = (id) => {
+  const ev = state.events.find(e => e.id === id);
+  state.activeEventId = id;
+  state.selectedPlayers = ev?.team ? ev.team.map(p => ({ ...p })) : [];
+  navigate('teamselect');
+  state.prevScreen = 'eventdetail';
 };
 
 window.doRSVP = (eventId, status) => {
