@@ -3098,7 +3098,10 @@ function buildScreen() {
   if (s === 'splash') return buildSplash();
   if (s === 'login') return buildLogin();
   if (s === 'signup') return buildSignup();
-  if (s === 'joinclub') return buildJoinClub();
+  if (s === 'joinclub') {
+    const jcModal = state.modal ? buildModal() : '';
+    return `<div style="display:flex;flex-direction:column;height:100%;position:relative;">${buildJoinClub()}${jcModal}</div>`;
+  }
   if (s === 'forgotpassword') return buildForgotPassword();
   if (s === 'setnewpassword') return buildSetNewPassword();
   if (s === 'emailconfirm') return buildEmailConfirm();
