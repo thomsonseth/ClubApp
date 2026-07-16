@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=overlays-content"/>
 <title>ClubApp – Laurimar Power Cricket Club</title>
 <link rel="manifest" href="/manifest.json"/>
 <meta name="mobile-web-app-capable" content="yes"/>
@@ -14,6 +14,11 @@
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   input, textarea, select, button { max-width: 100%; }
+
+  html, body {
+    overflow: hidden;
+    height: 100%;
+  }
 
   body {
     background: #111318;
@@ -7967,6 +7972,22 @@ function checkShowInstallPrompt() {
     `;
     document.body.appendChild(banner);
   } catch(e) {}
+}
+
+// The app shell is a fixed-height (100vh) flex layout with its own internal
+// .screen-scroll containers — window/body itself should never need to scroll.
+// Some mobile browsers, when a focused input is near the on-screen keyboard,
+// forcibly pan the whole page to keep it visible anyway, which drags
+// everything else (including the bottom nav) up above the keyboard with it.
+// Snapping window scroll back to 0 whenever the visual viewport changes
+// (keyboard opening/closing/resizing) neutralises that.
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    if (window.scrollY !== 0 || window.scrollX !== 0) window.scrollTo(0, 0);
+  });
+  window.visualViewport.addEventListener('scroll', () => {
+    if (window.scrollY !== 0 || window.scrollX !== 0) window.scrollTo(0, 0);
+  });
 }
 
 // ── BOOT ──────────────────────────────────────────────────────────────────
